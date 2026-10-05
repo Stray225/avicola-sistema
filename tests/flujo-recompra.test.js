@@ -40,7 +40,7 @@ function preparar() {
     ['Q-FRESCO', 'Queso fresco', 'kg', 6000, 'Quesos'],
     ['G-MED', 'Medallón', 'kg', 3000, 'Congelados'],
     ['P-BAST', 'Bastoncitos', 'kg', 3500, 'Congelados']
-  ]);
+  ]).proteger(); // el sistema nunca escribe en COSTOS
   // Una planilla que ya venía de la etapa anterior: CLIENTES sin las columnas nuevas y con un cliente de antes.
   p.cargarHoja('CLIENTES', [
     ['Teléfono', 'Nombre', 'Calle y altura', 'Entre calles', 'Barrio', 'Referencia', 'Primera compra', 'Última compra',

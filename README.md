@@ -151,7 +151,8 @@ El sistema arma la lista, el mensaje y mide si funcionó. **Nada se manda solo**
 Después de cambiar algo en la planilla, en la app tocá **↻** (arriba a la derecha) para traerlo.
 
 - **Un precio**: pestaña **PRECIOS**, columna "Precio público sugerido". Vacío = la app lo pide a mano. Desde la cantidad de maples de CONFIG ("Maples desde los que es mayorista", 6) la app no sugiere precio de huevos: lo ponés vos.
-- **Un producto nuevo**: agregalo en **COSTOS** con su código y su costo y corré **Avícola → Instalar** (lo suma a PRECIOS con el precio vacío). En PRECIOS también podés:
+- **Un costo**: pestaña **COSTOS** (ver las reglas de abajo). Se escribe solo en "Costo compra" y "Actualizado"; "Costo unitario base" se calcula solo y es de donde lee la app.
+- **Un producto nuevo**: agregalo en **COSTOS** con su código y su "Costo compra", copiá la fórmula de "Costo unitario base" de la fila de arriba y corré **Avícola → Instalar** (lo suma a PRECIOS con el precio vacío). En PRECIOS también podés:
   - "Unidades base por unidad de venta": si lo vendés en otra unidad que la del costo (por ejemplo por cajón y el costo es por maple, poné cuántos maples trae).
   - "Paso del + y −": por ejemplo `0,5` para los quesos por kilo.
   - "Activo": `no` para que no aparezca en la app.
@@ -165,6 +166,19 @@ Después de cambiar algo en la planilla, en la app tocá **↻** (arriba a la de
 - **Tablero**: en **CONFIG**, filas "Tablero: …" (semanas, semanas del detalle, días para cliente activo y perdido), "Orígenes que son anuncios" y "Palabras de publicidad en GASTOS". La hora del recálculo automático también está ahí; si la cambiás, corré **Avícola → Instalar**.
 
 ---
+
+### Reglas de la pestaña COSTOS (FUENTE ÚNICA)
+
+| Columna | Qué va | ¿Se escribe a mano? |
+|---|---|---|
+| D · **Costo compra** | Lo que cuesta comprarlo, en la unidad de compra. | **Sí** |
+| G · **Costo unitario base** | Fórmula (`=D/E`): costo por maple, kg o unidad. **La app de pedidos lee de acá.** | **Nunca**: si se pisa, se rompe la fórmula. |
+| H · **Actualizado** | Fecha en que actualizaste ese costo. | **Sí** |
+
+- **Almacén**: se carga a **precio por bulto de Maxiconsumo, por unidad**: el **precio de lista**, sin el descuento del QR.
+- Al actualizar costos se escribe **solo en D y H**. El resto de las columnas no se toca.
+- El sistema de pedidos **nunca escribe en COSTOS** (ni en INICIO, PROMOS o STOCK): solo lee. Hay un test que falla si alguna vez lo intenta.
+- La columna "Categoría" ordena la CARGA de la hoja de reparto: un producto sin categoría aparece en "Otros".
 
 ## Importar lo que ya tenías (una sola vez, desde el menú Avícola)
 

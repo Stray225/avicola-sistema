@@ -137,11 +137,13 @@ Rango.prototype.clearContent = function () {
 };
 Rango.prototype.setDataValidation = function (regla) {
   var h = this.hoja;
+  h.noProtegida_();
   this.recorrer(function (f, c) { h.validaciones[f + ',' + c] = regla; });
   return this;
 };
 Rango.prototype.clearDataValidations = function () {
   var h = this.hoja;
+  h.noProtegida_();
   this.recorrer(function (f, c) { delete h.validaciones[f + ',' + c]; });
   return this;
 };
@@ -176,7 +178,7 @@ Rango.prototype.getRichTextValues = function () {
   return salida;
 };
 ['setFontWeight', 'setBackground', 'setFontColor', 'setWrap', 'setHorizontalAlignment', 'setFontSize'].forEach(function (m) {
-  Rango.prototype[m] = function () { return this; };
+  Rango.prototype[m] = function () { this.hoja.noProtegida_(); return this; };
 });
 
 function Hoja(planilla, nombre) {
@@ -192,13 +194,20 @@ function Hoja(planilla, nombre) {
   this.links = {};
 }
 Hoja.prototype.getName = function () { return this.nombre; };
+/** Para los tests: desde acá, cualquier escritura en esta pestaña hace fallar el test. */
+Hoja.prototype.proteger = function () { this.protegida = true; return this; };
+Hoja.prototype.noProtegida_ = function () {
+  if (this.protegida) throw new Error('El código intentó modificar la pestaña protegida "' + this.nombre + '".');
+};
 Hoja.prototype.leer = function (f, c) { var x = this.celdas[f - 1]; return x && x[c - 1] !== undefined ? x[c - 1] : ''; };
 Hoja.prototype.escribir = function (f, c, v) {
+  this.noProtegida_();
   if (!this.celdas[f - 1]) this.celdas[f - 1] = [];
   this.celdas[f - 1][c - 1] = v;
 };
 Hoja.prototype.formato = function (f, c) { var x = this.formatos[f - 1]; return x && x[c - 1] ? x[c - 1] : ''; };
 Hoja.prototype.ponerFormato = function (f, c, v) {
+  this.noProtegida_();
   if (!this.formatos[f - 1]) this.formatos[f - 1] = [];
   this.formatos[f - 1][c - 1] = v;
 };
@@ -235,6 +244,7 @@ Hoja.prototype.getDataRange = function () {
   return this.getRange(1, 1, Math.max(this.getLastRow(), 1), Math.max(this.getLastColumn(), 1));
 };
 Hoja.prototype.insertRowsAfter = function (despues, n) {
+  this.noProtegida_();
   if (despues < 1 || despues > this.maxFilas) throw new Error('Those rows are out of bounds.');
   var formatoArriba = (this.formatos[despues - 1] || []).slice();
   var nuevasCeldas = [];
@@ -247,6 +257,7 @@ Hoja.prototype.insertRowsAfter = function (despues, n) {
   return this;
 };
 Hoja.prototype.insertColumnsAfter = function (despues, n) {
+  this.noProtegida_();
   this.maxCols += n;
   return this;
 };
@@ -264,6 +275,7 @@ Hoja.prototype.correrFilas_ = function (desde, delta) {
   });
 };
 Hoja.prototype.deleteRows = function (desde, n) {
+  this.noProtegida_();
   if (desde < 1 || desde + n - 1 > this.maxFilas) throw new Error('Those rows are out of bounds.');
   if (n >= this.maxFilas) throw new Error('You can\'t delete all the rows on the sheet.');
   this.celdas.splice(desde - 1, n);
@@ -276,7 +288,7 @@ Hoja.prototype.deleteRow = function (fila) { return this.deleteRows(fila, 1); };
 Hoja.prototype.setFrozenRows = function (n) { this.congeladas = n; return this; };
 Hoja.prototype.setFrozenColumns = function (n) { this.columnasCongeladas = n; return this; };
 Hoja.prototype.setColumnWidth = function () { return this; };
-Hoja.prototype.clear = function () { this.celdas = []; this.formatos = []; this.links = {}; this.validaciones = {}; return this; };
+Hoja.prototype.clear = function () { this.noProtegida_(); this.celdas = []; this.formatos = []; this.links = {}; this.validaciones = {}; return this; };
 /** Para los tests: toda la hoja como matriz (sin filas vacías del final). */
 Hoja.prototype.matriz = function () {
   var filas = this.getLastRow();

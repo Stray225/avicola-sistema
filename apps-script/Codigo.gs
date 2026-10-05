@@ -264,7 +264,7 @@ function semillas_() {
     promos: [
       { codigo: 'PROMO-FULL', nombre: 'PROMO FULL', precio: 29900, componentes: [
         ['A-HAR', 2], ['A-PUR', 2], ['A-ATU', 1], ['A-SPA', 1], ['A-TIR', 1], ['A-ARR', 1], ['A-LEV', 1],
-        ['A-RAL', 1], ['A-ACE', 1], ['Q-FRESCO', 0.5], ['H-B1', 1]] },
+        ['A-RAL', 1], ['A-ACE', 1], ['Q-FRESCO', 0.5], ['H-B2', 1]] },
       { codigo: 'PROMO-1', nombre: 'PROMO 1', precio: 32900, componentes: [
         ['H-B2', 1], ['G-MED', 1], ['P-BAST', 1], ['Q-FRESCO', 1]] },
       { codigo: 'PROMO-2', nombre: 'PROMO 2', precio: 35900, componentes: [

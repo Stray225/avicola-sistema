@@ -13,20 +13,25 @@ var AHORA = new Date('2026-10-05T12:00:00Z'); // 09:00 en Buenos Aires
 function prepararPlanilla(entorno) {
   var p = entorno.planilla;
   p.cargarHoja('INICIO', [['Planilla de prueba'], ['Texto que no hay que tocar']]);
+  // Mismas columnas que COSTOS de la FUENTE ÚNICA: el costo se carga en "Costo compra" (D) y
+  // "Costo unitario base" (G) es la fórmula =D/E (acá va su resultado). Con un título arriba,
+  // para probar que el encabezado se busca por nombre.
   p.cargarHoja('COSTOS', [
     ['COSTOS (título arriba de los encabezados)'],
-    ['Proveedor', 'Código', 'Producto', 'Unidad base', 'Costo unitario base', 'Categoría'],
-    ['X', 'H-B1', 'Huevo blanco N°1', 'maple', 5000, 'Huevos'],
-    ['X', 'H-B2', 'Huevo blanco N°2', 'maple', '$4.500,00', 'Huevos'],
-    ['X', 'G-MED', 'Medallón', 'kg', 3000, 'Congelados'],
-    ['X', 'G-PAT', 'Patitas', 'kg', 2800, 'Congelados'],
-    ['X', 'P-BAST', 'Bastoncitos', 'kg', 3500, 'Congelados'],
-    ['X', 'Q-FRESCO', 'Queso fresco', 'kg', 6000, 'Quesos'],
-    ['X', 'A-HAR', 'Harina', 'unidad', 800, 'Almacén'],
-    ['X', 'A-RAL', 'Rallado', 'unidad', '', 'Almacén']
+    ['Código', 'Producto', 'Unidad compra', 'Costo compra', 'Unidades base/compra', 'Unidad base', 'Costo unitario base', 'Actualizado', 'Costo por bulto (si aplica)', 'Categoría'],
+    ['H-B1', 'Huevo blanco N°1', 'cajón 12 maples', 60000, 12, 'maple', 5000, '2026-09-29', '', 'Huevos'],
+    ['H-B2', 'Huevo blanco N°2', 'cajón 12 maples', 54000, 12, 'maple', '$4.500,00', '2026-09-29', '', 'Huevos'],
+    ['G-MED', 'Medallón', 'kg', 3000, 1, 'kg', 3000, '2026-09-28', '', 'Congelados'],
+    ['G-PAT', 'Patitas', 'kg', 2800, 1, 'kg', 2800, '2026-09-28', '', 'Congelados'],
+    ['P-BAST', 'Bastoncitos', 'kg', 3500, 1, 'kg', 3500, '2026-09-28', '', 'Congelados'],
+    ['Q-FRESCO', 'Queso fresco', 'kg', 6000, 1, 'kg', 6000, '2026-09-29', '', 'Quesos'],
+    ['A-HAR', 'Harina', 'unidad (bulto)', 800, 1, 'unidad', 800, '2026-10-05', '', 'Almacén'],
+    ['A-RAL', 'Rallado', 'unidad (bulto)', '', 1, 'unidad', '', '', '', 'Almacén']
   ]);
   p.cargarHoja('PROMOS', [['Promo vieja', 123]]);
   p.cargarHoja('STOCK', [['Producto', 'Cantidad'], ['H-B1', 10]]);
+  // El sistema nunca escribe en estas pestañas: si lo intenta, el test falla.
+  ['INICIO', 'COSTOS', 'PROMOS', 'STOCK'].forEach(function (n) { p.getSheetByName(n).proteger(); });
 }
 
 function tabla(entorno, nombre) {
@@ -95,6 +100,10 @@ test('circuito completo en la planilla', async function (t) {
       ['PROMO FULL', 29900, 'sí', 'a revisar'], ['PROMO 1', 32900, 'sí', 'a revisar'], ['PROMO 2', 35900, 'sí', 'a revisar']]);
     assert.equal(promos.filter(function (f) { return f.Promo; }).length, 11 + 4 + 4);
     assert.ok(promos.some(function (f) { return f.Promo === 'PROMO-FULL' && f['Código producto'] === 'Q-FRESCO' && f.Cantidad === 0.5; }));
+    // La PROMO FULL lleva maple B2 (no B1).
+    var full = promos.filter(function (f) { return f.Promo === 'PROMO-FULL'; });
+    assert.ok(full.some(function (f) { return f['Código producto'] === 'H-B2' && f.Cantidad === 1; }));
+    assert.ok(!full.some(function (f) { return f['Código producto'] === 'H-B1'; }));
 
     var zonas = tabla(entorno, 'ZONAS');
     assert.equal(zonas.length, 16);
@@ -136,6 +145,7 @@ test('circuito completo en la planilla', async function (t) {
     d.catalogo.items.forEach(function (i) { porCodigo[i.codigo] = i; });
     assert.equal(porCodigo['G-MED'].precio, 4000);
     assert.equal(porCodigo['H-B2'].costo, 4500);
+    assert.equal(porCodigo['H-B1'].costo, 5000); // de "Costo unitario base" (G), no de "Costo compra" (D)
     assert.equal(porCodigo['PROMO-1'].costo, 4500 + 3000 + 3500 + 6000);
     assert.equal(porCodigo['PROMO-1'].revisar, true);
   });
