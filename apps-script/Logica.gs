@@ -21,6 +21,9 @@ function crearLogica_() {
   var LISTA_ESTADOS = [ESTADOS.CONFIRMADO, ESTADOS.ENTREGADO, ESTADOS.NO_ESTABA, ESTADOS.CANCELADO];
   var VUELTAS = { PRIMERA: '1ra', SEGUNDA: '2da', EN_RUTA: 'en ruta' };
   var LISTA_VUELTAS = [VUELTAS.PRIMERA, VUELTAS.SEGUNDA, VUELTAS.EN_RUTA];
+  // Quién paga cada gasto (columna "Quién lo paga" de GASTOS). Por defecto, el local.
+  var QUIEN_PAGA = { LOCAL: 'lo paga el local', COMPARTIDO: 'se reparte entre los dos' };
+  var LISTA_QUIEN_PAGA = [QUIEN_PAGA.LOCAL, QUIEN_PAGA.COMPARTIDO];
 
   var DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   var DIAS_CORTOS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
@@ -1144,6 +1147,11 @@ function crearLogica_() {
     return salida;
   }
 
+  /** "se reparte…", "los dos", "compartido" → se reparte; cualquier otra cosa (o vacío) → lo paga el local. */
+  function normalizarQuienPaga(v) {
+    return /repart|compart|los dos|ambos/.test(normalizarTexto(v)) ? QUIEN_PAGA.COMPARTIDO : QUIEN_PAGA.LOCAL;
+  }
+
   /** "Mercado Pago" → "MP"; "Efectivo" → "Efectivo" */
   function etiquetaCorta(medio) {
     var palabras = texto(medio).split(/\s+/).filter(Boolean);
@@ -1178,6 +1186,10 @@ function crearLogica_() {
   /**
    * Cierre del día con lo marcado en HOY.
    * e: { fecha, pedidos (con lineas), gastos, retiroReal, porcentajeAgustin, medios, catalogo, ordenCategorias }
+   *
+   * Ganancia = ventas − costo de mercadería. Agustín se lleva su porcentaje (70%) completo y el local
+   * el resto (30%). Los gastos que paga el local (la opción por defecto) se restan solo de la parte del
+   * local; los que se reparten entre los dos se dividen con los mismos porcentajes que la ganancia.
    */
   function cierreDelDia(e) {
     var fecha = e.fecha;
@@ -1216,18 +1228,20 @@ function crearLogica_() {
     var ventas = 0;
     var costo = 0;
     clientes.forEach(function (c) { ventas += c.cobrado; costo += c.costo; });
-    var gananciaBruta = ventas - costo;
+    var ganancia = ventas - costo;
+    var reparto = repartir(ganancia, e.porcentajeAgustin);
 
     var gastos = (e.gastos || []).filter(function (g) { return g.fecha === fecha; }).map(function (g) {
-      return { id: g.id, descripcion: texto(g.descripcion) || 'Gasto', monto: parsearPesos(g.monto) || 0, noAfecta: g.noAfecta === true || esSi(g.noAfecta) };
+      return { id: g.id, descripcion: texto(g.descripcion) || 'Gasto', monto: parsearPesos(g.monto) || 0, quienPaga: normalizarQuienPaga(g.quienPaga) };
     });
-    var gastosAfectan = 0;
-    var gastosNoAfectan = 0;
-    gastos.forEach(function (g) { if (g.noAfecta) gastosNoAfectan += g.monto; else gastosAfectan += g.monto; });
-    var gananciaNeta = gananciaBruta - gastosAfectan;
-    var reparto = repartir(gananciaNeta, e.porcentajeAgustin);
-    // Los gastos que no afectan la ganancia (ej. nafta) son de Agustín y se pagaron con plata del día.
-    var retiroCalculado = reparto.agustin - gastosNoAfectan;
+    var gastosLocal = 0;
+    var gastosCompartidos = 0;
+    gastos.forEach(function (g) {
+      if (g.quienPaga === QUIEN_PAGA.COMPARTIDO) gastosCompartidos += g.monto;
+      else gastosLocal += g.monto;
+    });
+    var compartidos = repartir(gastosCompartidos, e.porcentajeAgustin);
+    var retiroCalculado = reparto.agustin - compartidos.agustin;
     var retiroReal = e.retiroReal === null || e.retiroReal === undefined || e.retiroReal === '' ? null : parsearPesos(e.retiroReal);
 
     var promos = {};
@@ -1246,15 +1260,17 @@ function crearLogica_() {
       entregados: entregados.length,
       ventas: ventas,
       costo: costo,
-      gananciaBruta: gananciaBruta,
+      ganancia: ganancia,
       margen: margen(ventas, costo),
-      gastos: gastos,
-      gastosAfectan: gastosAfectan,
-      gastosNoAfectan: gastosNoAfectan,
-      gananciaNeta: gananciaNeta,
       porcentajeAgustin: Number(e.porcentajeAgustin) || 0,
       agustin: reparto.agustin,
       local: reparto.local,
+      gastos: gastos,
+      gastosLocal: gastosLocal,
+      gastosCompartidos: gastosCompartidos,
+      compartidosAgustin: compartidos.agustin,
+      compartidosLocal: compartidos.local,
+      leQuedaLocal: reparto.local - gastosLocal - compartidos.local,
       porMedio: Object.keys(porMedio).map(function (m) { return { medio: m, monto: porMedio[m] }; }),
       pendienteCobro: pendienteCobro,
       retiroCalculado: retiroCalculado,
@@ -1558,6 +1574,8 @@ function crearLogica_() {
     LISTA_ESTADOS: LISTA_ESTADOS,
     VUELTAS: VUELTAS,
     LISTA_VUELTAS: LISTA_VUELTAS,
+    QUIEN_PAGA: QUIEN_PAGA,
+    LISTA_QUIEN_PAGA: LISTA_QUIEN_PAGA,
     CLAVES_CONFIG: CLAVES_CONFIG,
     texto: texto,
     normalizarTexto: normalizarTexto,
@@ -1627,6 +1645,7 @@ function crearLogica_() {
     unidadesPorCategoria: unidadesPorCategoria,
     etiquetaCorta: etiquetaCorta,
     normalizarMedio: normalizarMedio,
+    normalizarQuienPaga: normalizarQuienPaga,
     cierreDelDia: cierreDelDia,
     datosHojaReparto: datosHojaReparto,
     estadisticasCliente: estadisticasCliente,

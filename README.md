@@ -91,7 +91,15 @@ En Apps Script: ⚙️ **Configuración del proyecto** (rueda a la izquierda) �
 2. **A la mañana**: **HOY → Ordenar ruta** (Google Maps la arma saliendo y volviendo al local) → **Hoja PDF → 1ra vuelta**. Si querés, movés pedidos con ↑ ↓.
 3. **En la calle**: en cada pedido **Avisar que voy** (abre WhatsApp con el mensaje escrito; lo mandás vos). Al entregar: **Cobrado efectivo** o **Cobrado MP** (o **Entregado** si paga después). Si no atiende: **No estaba** (abre WhatsApp y el pedido pasa a PENDIENTES). Lo que vendés con la mercadería de más: **EN RUTA** (teléfono opcional, pero conviene).
 4. **Lo que entra después de imprimir** va solo a la **2da vuelta** y aparece igual en HOY. Podés imprimir la hoja de la 2da.
-5. **A la noche**: **CIERRE** → cargá los gastos (la nafta, tildada como "no afecta la ganancia"), poné el **retiro real** y tocá **Cerrar el día**. Te muestra ventas, costo, ganancia, 70/30, efectivo/MP/transferencia/pendiente y la diferencia del retiro. Queda en las pestañas **CIERRE** e **HISTÓRICO**. Si quedó algo sin marcar, te avisa antes.
+5. **A la noche**: **CIERRE** → cargá los gastos del día (nafta, publicidad, bolsas…; por defecto "lo paga el local"), poné el **retiro real** y tocá **Cerrar el día**. Te muestra ventas, costo, ganancia, tu 70%, el 30% del local y lo que le queda después de gastos, efectivo/MP/transferencia/pendiente y la diferencia del retiro. Queda en las pestañas **CIERRE** e **HISTÓRICO**. Si quedó algo sin marcar, te avisa antes.
+
+### Cómo se reparte la plata en el cierre
+
+- **Ganancia** = ventas − costo de mercadería.
+- **Agustín 70%** de la ganancia, **completo**: no se le descuenta ningún gasto. Ese es el **retiro calculado**.
+- **Local 30%** de la ganancia. De ahí se restan los **gastos que paga el local** (la nafta, la publicidad y todo lo demás, que es la opción por defecto) → **Le queda al local**.
+- Si algún gasto lo marcás como **"se reparte entre los dos"**, se divide con los mismos porcentajes (70% vos, 30% el local): a tu retiro se le resta tu parte.
+- Los porcentajes salen de **CONFIG**. Ejemplo: ventas $ 100.000, costo $ 60.000 → ganancia $ 40.000 → vos $ 28.000; local $ 12.000; si el local pagó $ 5.000 de nafta, le quedan $ 7.000.
 
 **PENDIENTES** junta lo que no estaba, lo que no tiene dirección completa o fecha, y lo que quedó de días anteriores: lo reprogramás con un toque.
 
@@ -112,6 +120,7 @@ Después de cambiar algo en la planilla, en la app tocá **↻** (arriba a la de
 - **Una zona**: pestaña **ZONAS**, barrio y ¿llegamos? (`sí`, `no` o `consultar`). La app avisa al cargar un pedido.
 - **Un texto de mensaje**: pestaña **CONFIG**, filas "Mensaje: …". Podés usar `{nombre}`, `{total}`, `{detalle}`, `{direccion}` y `{fecha}`.
 - **Medios de pago, orígenes, hora de corte, feriados, porcentajes, margen mínimo**: también en **CONFIG**. Cada medio de pago es un botón "Cobrado…".
+- **Un gasto**: se carga desde CIERRE en la app, o directo en la pestaña **GASTOS** (fecha, descripción, monto y "Quién lo paga": `lo paga el local` o `se reparte entre los dos`; si lo dejás vacío, lo paga el local).
 
 ---
 

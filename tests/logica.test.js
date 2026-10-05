@@ -393,7 +393,7 @@ test('ordenar ruta: aplica el orden de Google y respeta las vueltas', function (
   assert.ok(!L.entraEnVuelta({ vuelta: 'en ruta' }, 'todas'));
 });
 
-test('cierre del día: detalle, unidades, 70/30, medios, gastos y retiro', function () {
+test('cierre del día: detalle, unidades, 70/30 sin descontarle gastos a Agustín, medios y retiro', function () {
   var cat = catalogo();
   var fecha = '2026-10-05';
   var pedidos = [
@@ -409,24 +409,27 @@ test('cierre del día: detalle, unidades, 70/30, medios, gastos y retiro', funct
     { id: 'Z', fechaEntrega: '2026-10-04', cliente: 'Otro día', estado: 'entregado', medio: 'Efectivo', totalCobrado: 77777, costo: 1 }
   ];
   var gastos = [
-    { id: 'g1', fecha: fecha, descripcion: 'Bolsas', monto: 1500, noAfecta: false },
-    { id: 'g2', fecha: fecha, descripcion: 'Nafta', monto: '5.000', noAfecta: 'sí' },
-    { id: 'g3', fecha: '2026-10-04', descripcion: 'Otro día', monto: 999, noAfecta: false }
+    { id: 'g1', fecha: fecha, descripcion: 'Bolsas', monto: 1500, quienPaga: '' }, // vacío = lo paga el local
+    { id: 'g2', fecha: fecha, descripcion: 'Nafta', monto: '2.000', quienPaga: 'lo paga el local' },
+    { id: 'g3', fecha: '2026-10-04', descripcion: 'Otro día', monto: 999, quienPaga: 'lo paga el local' }
   ];
   var r = L.cierreDelDia({ fecha: fecha, pedidos: pedidos, gastos: gastos, retiroReal: '$ 15.000', porcentajeAgustin: 0.7,
     medios: ['Efectivo', 'Mercado Pago', 'Transferencia'], catalogo: cat, ordenCategorias: ['Huevos', 'Congelados', 'Quesos', 'Almacén'] });
   assert.equal(r.entregados, 3);
   assert.equal(r.ventas, 30000 + 10500 + 5000);
   assert.equal(r.costo, 29000);
-  assert.equal(r.gananciaBruta, 16500);
-  assert.equal(r.gastosAfectan, 1500);
-  assert.equal(r.gastosNoAfectan, 5000);
-  assert.equal(r.gananciaNeta, 15000);
-  assert.equal(r.agustin, 10500);
-  assert.equal(r.local, 4500);
-  assert.equal(r.retiroCalculado, 10500 - 5000);
+  // Ganancia = ventas − costo de mercadería; los gastos no la tocan.
+  assert.equal(r.ganancia, 16500);
+  assert.equal(r.agustin, 11550);
+  assert.equal(r.local, 4950);
+  // Todo lo paga el local: se resta solo de su 30% y el retiro de Agustín es su 70% completo.
+  assert.equal(r.gastosLocal, 3500);
+  assert.equal(r.gastosCompartidos, 0);
+  assert.equal(r.leQuedaLocal, 4950 - 3500);
+  assert.equal(r.retiroCalculado, 11550);
   assert.equal(r.retiroReal, 15000);
-  assert.equal(r.diferencia, 15000 - 5500);
+  assert.equal(r.diferencia, 15000 - 11550);
+  assert.deepEqual(Array.from(r.gastos, function (g) { return g.quienPaga; }), ['lo paga el local', 'lo paga el local']);
   assert.deepEqual(r.porMedio, [{ medio: 'Efectivo', monto: 30000 }, { medio: 'Mercado Pago', monto: 10500 }, { medio: 'Transferencia', monto: 0 }]);
   assert.equal(r.pendienteCobro, 5000);
   assert.deepEqual(r.sinEstadoFinal.map(function (p) { return p.cliente; }), ['Fede']);
@@ -442,6 +445,17 @@ test('cierre del día: detalle, unidades, 70/30, medios, gastos y retiro', funct
   assert.equal(quesos.cantidad, 1.5);
   assert.deepEqual(r.unidades.map(function (u) { return u.categoria; }), ['Huevos', 'Congelados', 'Quesos', 'Almacén']);
   assert.deepEqual(r.promos, [{ nombre: 'PROMO 1', cantidad: 1 }]);
+  // Un gasto que se reparte entre los dos se divide 70/30: a Agustín le baja su parte.
+  var conCompartido = L.cierreDelDia({ fecha: fecha, pedidos: pedidos, retiroReal: '', porcentajeAgustin: 0.7, medios: [], catalogo: cat,
+    gastos: gastos.concat([{ id: 'g4', fecha: fecha, descripcion: 'Publicidad', monto: 1000, quienPaga: 'se reparte entre los dos' }]) });
+  assert.equal(conCompartido.agustin, 11550);
+  assert.equal(conCompartido.gastosLocal, 3500);
+  assert.equal(conCompartido.gastosCompartidos, 1000);
+  assert.equal(conCompartido.compartidosAgustin, 700);
+  assert.equal(conCompartido.compartidosLocal, 300);
+  assert.equal(conCompartido.retiroCalculado, 11550 - 700);
+  assert.equal(conCompartido.leQuedaLocal, 4950 - 3500 - 300);
+  assert.equal(conCompartido.retiroCalculado + conCompartido.leQuedaLocal, 16500 - 4500); // no se pierde ni un peso
   // Sin retiro cargado, no hay diferencia.
   var sin = L.cierreDelDia({ fecha: fecha, pedidos: pedidos, gastos: [], retiroReal: '', porcentajeAgustin: 0.7, medios: [], catalogo: cat });
   assert.equal(sin.retiroReal, null);
@@ -565,6 +579,15 @@ test('importar ventas viejas: IDs estables, teléfonos, medios y productos', fun
   assert.equal(porNombre.pedido.telefono, '+5491155550007');
   assert.equal(L.extraerIdPlanilla('https://docs.google.com/spreadsheets/d/' + 'a'.repeat(30) + '/edit#gid=0'), 'a'.repeat(30));
   assert.equal(L.extraerIdPlanilla('corto'), '');
+});
+
+test('quién paga un gasto: por defecto el local', function () {
+  assert.equal(L.normalizarQuienPaga(''), 'lo paga el local');
+  assert.equal(L.normalizarQuienPaga('Lo paga el local'), 'lo paga el local');
+  assert.equal(L.normalizarQuienPaga('cualquier cosa'), 'lo paga el local');
+  assert.equal(L.normalizarQuienPaga('Se reparte entre los dos'), 'se reparte entre los dos');
+  assert.equal(L.normalizarQuienPaga('compartido'), 'se reparte entre los dos');
+  assert.deepEqual(L.LISTA_QUIEN_PAGA, ['lo paga el local', 'se reparte entre los dos']);
 });
 
 test('medios de pago: se llevan al nombre de CONFIG', function () {

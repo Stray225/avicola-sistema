@@ -248,7 +248,7 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     venta: null,
     cierreFecha: '',
     retiro: '',
-    gastoNuevo: { descripcion: '', monto: '', noAfecta: false },
+    gastoNuevo: gastoVacio(),
     avisos: [],
     avisados: {},
     ocupado: {},
@@ -256,6 +256,8 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     refrescando: false
   };
   var CALLBACKS = {};
+
+  function gastoVacio() { return { descripcion: '', monto: '', quienPaga: L.QUIEN_PAGA.LOCAL }; }
 
   // ───────────────────────────── Utilidades ─────────────────────────────
 
@@ -394,7 +396,7 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     },
     guardarGasto: function (g) {
       var lista = E.datos.gastos.filter(function (x) { return x.id !== g.id; });
-      lista.push({ id: g.id, fecha: g.fecha, descripcion: g.descripcion, monto: L.parsearPesos(g.monto) || 0, noAfecta: !!g.noAfecta });
+      lista.push({ id: g.id, fecha: g.fecha, descripcion: g.descripcion, monto: L.parsearPesos(g.monto) || 0, quienPaga: L.normalizarQuienPaga(g.quienPaga) });
       E.datos.gastos = lista;
     },
     borrarGasto: function (id) {
@@ -1429,22 +1431,26 @@ var ERROR_INICIAL = <?!= errorJson ?>;
         esc(r.sinEstadoFinal.map(function (p) { return p.cliente; }).join(', ')) + '. <button class="link" data-a="ir" data-v="hoy">Ir a HOY</button></div>';
     }
     if (r.costosFaltantes) html += '<div class="aviso">Hay pedidos con costos faltantes: la ganancia real es menor (mirá AVISOS).</div>';
+    var hayCompartidos = r.gastosCompartidos > 0;
     html += '<div class="cifras">' +
       '<div><span>Ventas (' + r.entregados + ')</span><b>' + esc(pesos(r.ventas)) + '</b></div>' +
-      '<div><span>Ganancia neta</span><b>' + esc(pesos(r.gananciaNeta)) + '</b></div>' +
+      '<div><span>Ganancia</span><b>' + esc(pesos(r.ganancia)) + '</b></div>' +
       '<div><span>Agustín ' + pct + '%</span><b>' + esc(pesos(r.agustin)) + '</b></div>' +
       '<div><span>Local ' + (100 - pct) + '%</span><b>' + esc(pesos(r.local)) + '</b></div></div>';
     html += '<table class="tabla">' +
-      '<tr><td>Costo</td><td>' + esc(pesos(r.costo)) + '</td></tr>' +
-      '<tr><td>Ganancia bruta</td><td>' + esc(pesos(r.gananciaBruta)) + '</td></tr>' +
-      '<tr><td>Margen</td><td>' + esc(L.formatearPorcentaje(r.margen)) + '</td></tr>' +
-      '<tr><td>Gastos que afectan la ganancia</td><td>' + esc(pesos(r.gastosAfectan)) + '</td></tr>' +
-      '<tr><td>Gastos que no afectan (ej. nafta)</td><td>' + esc(pesos(r.gastosNoAfectan)) + '</td></tr></table>';
+      '<tr><td>Costo de mercadería</td><td>' + esc(pesos(r.costo)) + '</td></tr>' +
+      '<tr><td>Ganancia (ventas − costo de mercadería)</td><td>' + esc(pesos(r.ganancia)) + '</td></tr>' +
+      '<tr><td>Margen</td><td>' + esc(L.formatearPorcentaje(r.margen)) + '</td></tr></table>';
+    html += '<h3>El local</h3><table class="tabla">' +
+      '<tr><td>Local ' + (100 - pct) + '%</td><td>' + esc(pesos(r.local)) + '</td></tr>' +
+      '<tr><td>Gastos que paga el local</td><td>' + esc(pesos(r.gastosLocal)) + '</td></tr>' +
+      (hayCompartidos ? '<tr><td>Su parte de los gastos que se reparten</td><td>' + esc(pesos(r.compartidosLocal)) + '</td></tr>' : '') +
+      '<tr><td><b>Le queda al local</b></td><td>' + esc(pesos(r.leQuedaLocal)) + '</td></tr></table>';
     html += '<h3>Cobrado por medio de pago</h3><table class="tabla">' +
       r.porMedio.map(function (m) { return '<tr><td>' + esc(m.medio) + '</td><td>' + esc(pesos(m.monto)) + '</td></tr>'; }).join('') +
       '<tr><td>Pendiente de cobro</td><td>' + esc(pesos(r.pendienteCobro)) + '</td></tr></table>';
     html += '<h3>Retiro</h3><table class="tabla">' +
-      '<tr><td>Calculado (Agustín − gastos que no afectan)</td><td>' + esc(pesos(r.retiroCalculado)) + '</td></tr>' +
+      '<tr><td>Calculado (' + (hayCompartidos ? 'tu ' + pct + '% − tu parte de los gastos que se reparten: ' + esc(pesos(r.compartidosAgustin)) : 'tu ' + pct + '% completo') + ')</td><td>' + esc(pesos(r.retiroCalculado)) + '</td></tr>' +
       '<tr><td>Real</td><td>' + (r.retiroReal === null ? '—' : esc(pesos(r.retiroReal))) + '</td></tr>' +
       '<tr><td>Diferencia</td><td>' + (r.diferencia === null ? '—' : esc(pesos(r.diferencia))) + '</td></tr></table>';
     html += '<details><summary>Detalle por cliente (' + r.clientes.length + ')</summary><table class="tabla">' +
@@ -1475,12 +1481,14 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       '<div id="cierre-resumen">' + htmlResumenCierre(r) + '</div></section>' +
       '<section class="bloque"><h2>Gastos del día</h2>' +
       (r.gastos.length ? r.gastos.map(function (x) {
-        return '<div class="gasto"><div>' + esc(x.descripcion) + (x.noAfecta ? ' <span class="chip">no afecta</span>' : '') + '</div>' +
+        return '<div class="gasto"><div>' + esc(x.descripcion) + ' <span class="chip">' + (x.quienPaga === L.QUIEN_PAGA.COMPARTIDO ? 'se reparte' : 'lo paga el local') + '</span></div>' +
           '<div><b>' + esc(pesos(x.monto)) + '</b> <button class="quitar" data-a="borrarGasto" data-id="' + esc(x.id) + '" aria-label="Borrar">×</button></div></div>';
       }).join('') : '<p class="ayuda">Sin gastos cargados.</p>') +
       '<label>Descripción<input class="campo" data-gasto="descripcion" autocomplete="off" autocapitalize="sentences" placeholder="ej: nafta, bolsas" value="' + esc(g.descripcion) + '"></label>' +
       '<label>Monto<input class="campo" data-gasto="monto" inputmode="decimal" autocomplete="off" placeholder="$ 0" value="' + esc(g.monto) + '"></label>' +
-      '<label class="check"><input type="checkbox" data-gasto="noAfecta"' + (g.noAfecta ? ' checked' : '') + '> No afecta la ganancia (ej: nafta)</label>' +
+      '<div style="margin-top:12px;font-size:15px;color:var(--gris)">¿Quién lo paga?</div><div class="segmentado">' +
+        '<button data-a="quienPagaGasto" data-v="' + esc(L.QUIEN_PAGA.LOCAL) + '" class="' + (g.quienPaga !== L.QUIEN_PAGA.COMPARTIDO ? 'activo' : '') + '">Lo paga el local</button>' +
+        '<button data-a="quienPagaGasto" data-v="' + esc(L.QUIEN_PAGA.COMPARTIDO) + '" class="' + (g.quienPaga === L.QUIEN_PAGA.COMPARTIDO ? 'activo' : '') + '">Se reparte entre los dos</button></div>' +
       '<button class="btn" data-a="agregarGasto">➕ Agregar gasto</button></section>' +
       '<section class="bloque"><h2>Retiro real</h2><p class="ayuda">Lo que realmente te llevaste. La diferencia aparece arriba.</p>' +
       '<input class="campo grande" data-retiro="1" inputmode="decimal" autocomplete="off" placeholder="$ 0" value="' + esc(E.retiro) + '"></section>' +
@@ -1492,8 +1500,8 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     var monto = L.parsearPesos(g.monto);
     if (monto === null || monto <= 0) { mostrarErrores(['Escribí el monto del gasto.']); return; }
     var fecha = E.cierreFecha || hoy();
-    accion('guardarGasto', [{ id: L.nuevoId('G', fecha, aleatorio()), fecha: fecha, descripcion: String(g.descripcion || '').trim() || 'Gasto', monto: monto, noAfecta: !!g.noAfecta }]);
-    E.gastoNuevo = { descripcion: '', monto: '', noAfecta: false };
+    accion('guardarGasto', [{ id: L.nuevoId('G', fecha, aleatorio()), fecha: fecha, descripcion: String(g.descripcion || '').trim() || 'Gasto', monto: monto, quienPaga: g.quienPaga }]);
+    E.gastoNuevo = gastoVacio();
     render();
     toast('Gasto agregado ✓');
   }
@@ -1518,9 +1526,11 @@ var ERROR_INICIAL = <?!= errorJson ?>;
         if (E.pestana === 'cierre') render();
         abrirPanel('<h2>Día cerrado ✓</h2><table class="tabla">' +
           '<tr><td>Ventas</td><td>' + esc(pesos(res.ventas)) + '</td></tr>' +
-          '<tr><td>Ganancia neta</td><td>' + esc(pesos(res.gananciaNeta)) + '</td></tr>' +
-          '<tr><td>Agustín</td><td>' + esc(pesos(res.agustin)) + '</td></tr>' +
-          '<tr><td>Local</td><td>' + esc(pesos(res.local)) + '</td></tr>' +
+          '<tr><td>Ganancia</td><td>' + esc(pesos(res.ganancia)) + '</td></tr>' +
+          '<tr><td>Agustín ' + Math.round(res.porcentajeAgustin * 100) + '%</td><td>' + esc(pesos(res.agustin)) + '</td></tr>' +
+          '<tr><td>Local ' + (100 - Math.round(res.porcentajeAgustin * 100)) + '%</td><td>' + esc(pesos(res.local)) + '</td></tr>' +
+          '<tr><td>Gastos que paga el local</td><td>' + esc(pesos(res.gastosLocal)) + '</td></tr>' +
+          '<tr><td>Le queda al local</td><td>' + esc(pesos(res.leQuedaLocal)) + '</td></tr>' +
           (res.diferencia !== null ? '<tr><td>Diferencia del retiro</td><td>' + esc(pesos(res.diferencia)) + '</td></tr>' : '') +
           '</table><p class="ayuda">El detalle quedó en la pestaña CIERRE y el resumen en HISTÓRICO.</p>' +
           '<button class="btn primario" data-a="cerrarPanel">Listo</button>');
@@ -1738,6 +1748,11 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     reprogramar: function (el) { reprogramar(el.getAttribute('data-id'), el.getAttribute('data-v')); },
     // CIERRE
     agregarGasto: agregarGasto,
+    quienPagaGasto: function (el) {
+      E.gastoNuevo.quienPaga = el.getAttribute('data-v');
+      var botones = document.querySelectorAll('[data-a="quienPagaGasto"]');
+      for (var i = 0; i < botones.length; i++) botones[i].classList.toggle('activo', botones[i] === el);
+    },
     borrarGasto: function (el) {
       accion('borrarGasto', [el.getAttribute('data-id')]);
       render();
@@ -1787,7 +1802,7 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       var codigo = el.getAttribute('data-precio');
       if (f.lineas[codigo]) f.lineas[codigo].precioManual = String(el.value).trim() === '' ? null : L.parsearPesos(el.value);
       pintarTotales(f);
-    } else if (el.hasAttribute('data-gasto') && el.type !== 'checkbox') {
+    } else if (el.hasAttribute('data-gasto')) {
       E.gastoNuevo[el.getAttribute('data-gasto')] = el.value;
     } else if (el.hasAttribute('data-retiro')) {
       E.retiro = el.value;
@@ -1799,7 +1814,6 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     var el = ev.target;
     if (el.hasAttribute('data-campo') && el.tagName === 'SELECT') alEscribir(el);
     else if (el.hasAttribute('data-campo-check')) formActual()[el.getAttribute('data-campo-check')] = el.checked;
-    else if (el.hasAttribute('data-gasto') && el.type === 'checkbox') E.gastoNuevo.noAfecta = el.checked;
     else if (el.hasAttribute('data-reprogramar')) reprogramar(el.getAttribute('data-reprogramar'), el.value);
     else if (el.hasAttribute('data-cierre-fecha')) { E.cierreFecha = el.value || hoy(); render(); }
   });

@@ -258,11 +258,13 @@ test('circuito completo en la planilla', async function (t) {
   });
 
   await t.test('gastos y cierre del día', function () {
-    g.guardarGasto({ id: 'G1', fecha: HOY, descripcion: 'Nafta', monto: '5.000', noAfecta: true });
-    g.guardarGasto({ id: 'G2', fecha: HOY, descripcion: 'Bolsas', monto: 1000, noAfecta: false });
-    g.guardarGasto({ id: 'G3', fecha: HOY, descripcion: 'Error', monto: 1, noAfecta: false });
+    g.guardarGasto({ id: 'G1', fecha: HOY, descripcion: 'Nafta', monto: '2.000' }); // sin elegir = lo paga el local
+    g.guardarGasto({ id: 'G2', fecha: HOY, descripcion: 'Bolsas', monto: 1000, quienPaga: 'lo paga el local' });
+    g.guardarGasto({ id: 'G3', fecha: HOY, descripcion: 'Error', monto: 1, quienPaga: 'se reparte entre los dos' });
     g.borrarGasto('G3');
-    assert.equal(tabla(entorno, 'GASTOS').length, 2);
+    var gastos = tabla(entorno, 'GASTOS');
+    assert.equal(gastos.length, 2);
+    assert.deepEqual(gastos.map(function (x) { return x['Quién lo paga']; }), ['lo paga el local', 'lo paga el local']);
     g.actualizarPedido('P20261005-CCCCC', { medio: 'Mercado Pago' });
     g.actualizarPedido('P20261005-EEEEE', { estado: 'entregado' }); // sin cobrar
     g.actualizarPedido('P20261005-BBBBB', { estado: 'no estaba' });
@@ -271,23 +273,35 @@ test('circuito completo en la planilla', async function (t) {
     assert.equal(r.entregados, 4);
     assert.equal(r.ventas, 38000);
     assert.equal(r.costo, 26500);
-    assert.equal(r.gananciaBruta, 11500);
-    assert.equal(r.gananciaNeta, 10500);
-    assert.equal(r.agustin, 7350);
-    assert.equal(r.local, 3150);
-    assert.equal(r.retiroCalculado, 2350);
-    assert.equal(r.diferencia, 20000 - 2350);
+    assert.equal(r.ganancia, 11500);
+    assert.equal(r.agustin, 8050);
+    assert.equal(r.local, 3450);
+    assert.equal(r.gastosLocal, 3000);
+    assert.equal(r.leQuedaLocal, 450);
+    assert.equal(r.retiroCalculado, 8050); // el 70% completo
+    assert.equal(r.diferencia, 20000 - 8050);
     assert.equal(r.pendienteCobro, 5000);
     assert.deepEqual(Array.from(r.sinEstadoFinal, function (p) { return p.cliente; }).sort(), ['Dani', 'Fede']);
     var hist = tabla(entorno, 'HISTÓRICO');
     assert.equal(hist.length, 1);
     assert.equal(hist[0]['Cobrado Efectivo'], 21000);
     assert.equal(hist[0]['Cobrado Mercado Pago'], 12000);
-    assert.equal(hist[0]['Ganancia neta'], 10500);
-    assert.match(hist[0]['Detalle de gastos'], /Nafta \$ 5\.000 \(no afecta\)/);
+    assert.equal(hist[0].Ganancia, 11500);
+    assert.equal(hist[0]['Agustín 70%'], 8050);
+    assert.equal(hist[0]['Local 30%'], 3450);
+    assert.equal(hist[0]['Gastos que paga el local'], 3000);
+    assert.equal(hist[0]['Le queda al local'], 450);
+    assert.equal(hist[0]['Retiro calculado'], 8050);
+    assert.match(hist[0]['Detalle de gastos'], /Nafta \$ 2\.000 \(local\)/);
     var cierre = entorno.planilla.getSheetByName('CIERRE').matriz();
     assert.match(cierre[0][0], /^CIERRE DEL DÍA — lunes 5 de octubre 2026/);
-    assert.ok(cierre.some(function (f) { return f[0] === 'Ganancia neta' && f[1] === 10500; }));
+    function filaCierre(texto) { return cierre.filter(function (f) { return f[0] === texto; })[0]; }
+    assert.equal(filaCierre('Ganancia (ventas − costo de mercadería)')[1], 11500);
+    assert.equal(filaCierre('Local 30%')[1], 3450);
+    assert.equal(filaCierre('Gastos que paga el local')[1], 3000);
+    assert.equal(filaCierre('Le queda al local')[1], 450);
+    assert.equal(filaCierre('Retiro calculado (Agustín 70% completo)')[1], 8050);
+    assert.ok(cierre.some(function (f) { return f[0] === 'Nafta' && f[2] === 'lo paga el local'; }));
     assert.ok(cierre.some(function (f) { return /Quedaron sin marcar/.test(f[0]); }));
     // Cerrar de nuevo reemplaza la fila del día.
     g.cerrarDia(HOY, '');
@@ -408,4 +422,5 @@ test('cerrar el día desde el menú pregunta si quedan pedidos sin marcar', func
   var alertas = entorno.registro.alertas;
   assert.match(alertas[0], /Quedan 1 pedido\(s\) sin marcar/);
   assert.match(alertas[1], /Día cerrado/);
+  assert.match(alertas[1], /Le queda al local/);
 });

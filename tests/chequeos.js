@@ -185,6 +185,7 @@ listar(RAIZ).forEach(function (ruta) {
   var numeros = texto.match(/\+?\d[\d\s\-().]{7,}\d/g) || [];
   numeros.forEach(function (x) {
     if (/\d{4}-\d{2}-\d{2}/.test(x)) return; // fechas, no teléfonos
+    if (/\d\s[-+*\/]\s\d/.test(x)) return; // cuentas ("15000 - 11550"), no teléfonos
     var tel = Logica.normalizarTelefono(x, '11');
     if (tel && !TELEFONO_DE_EJEMPLO.test(tel.slice(4))) error(rel + ': tiene un teléfono que podría ser real: ' + x.trim());
   });

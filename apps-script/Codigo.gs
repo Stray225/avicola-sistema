@@ -120,21 +120,21 @@ var ESQUEMAS = {
     ['fecha', 'Fecha', 'fecha'],
     ['descripcion', 'Descripción', 'texto'],
     ['monto', 'Monto', 'pesos'],
-    ['noAfecta', 'No afecta la ganancia', 'texto']
+    ['quienPaga', 'Quién lo paga', 'texto']
   ],
   HISTORICO: [
     ['fecha', 'Fecha', 'fecha'],
     ['entregados', 'Pedidos entregados', 'numero'],
     ['noEstaban', 'No estaban', 'numero'],
     ['ventas', 'Ventas', 'pesos'],
-    ['costo', 'Costo', 'pesos'],
-    ['gananciaBruta', 'Ganancia bruta', 'pesos'],
-    ['gastosAfectan', 'Gastos que afectan', 'pesos'],
-    ['gananciaNeta', 'Ganancia neta', 'pesos'],
+    ['costo', 'Costo de mercadería', 'pesos'],
+    ['ganancia', 'Ganancia', 'pesos'],
     ['margen', 'Margen', 'porcentaje'],
-    ['agustin', 'Agustín', 'pesos'],
+    ['agustin', 'Agustín', 'pesos'], // el encabezado lleva el porcentaje de CONFIG: ver esquemaHistorico_()
     ['local', 'Local', 'pesos'],
-    ['gastosNoAfectan', 'Gastos que no afectan', 'pesos'],
+    ['gastosLocal', 'Gastos que paga el local', 'pesos'],
+    ['gastosCompartidos', 'Gastos que se reparten', 'pesos'],
+    ['leQuedaLocal', 'Le queda al local', 'pesos'],
     ['retiroCalculado', 'Retiro calculado', 'pesos'],
     ['retiroReal', 'Retiro real', 'pesos'],
     ['diferencia', 'Diferencia', 'pesos'],
@@ -165,8 +165,8 @@ function semillas_() {
     config: [
       [C.nombreNegocio, 'Llegamos! · Avícola Belgrano', 'Aparece arriba en la app y en la hoja de reparto.'],
       [C.direccionLocal, 'Camino Gral. Belgrano 3124, Berazategui, Buenos Aires, Argentina', 'De acá sale y acá vuelve la ruta.'],
-      [C.porcentajeAgustin, '70%', 'Parte de la ganancia para Agustín en el cierre.'],
-      [C.porcentajeLocal, '30%', 'Parte de la ganancia para el local.'],
+      [C.porcentajeAgustin, '70%', 'Parte de la ganancia (ventas − costo de mercadería) para Agustín. No se le descuenta ningún gasto.'],
+      [C.porcentajeLocal, '30%', 'Parte de la ganancia para el local. De acá se descuentan los gastos que paga el local.'],
       [C.margenMinimo, '20%', 'Si un producto o promo deja menos que esto, aparece en AVISOS.'],
       [C.mediosPago, 'Efectivo, Mercado Pago, Transferencia', 'Separados por coma. Cada uno es un botón "Cobrado…" en HOY.'],
       [C.origenes, 'Anuncio PROMO FULL, Anuncio otra promo, Pedix, Recompra, Boca en boca, Local, En ruta', 'De dónde vino el pedido. Separados por coma.'],
@@ -302,8 +302,9 @@ function cerrarDiaDesdeMenu() {
     if (r.getSelectedButton() !== ui.Button.OK) return '';
     var c = cerrarDia(hoy, r.getResponseText());
     return 'Día cerrado ✓\n\nVentas: ' + Logica.formatearPesos(c.ventas) +
-      '\nGanancia neta: ' + Logica.formatearPesos(c.gananciaNeta) +
+      '\nGanancia: ' + Logica.formatearPesos(c.ganancia) +
       '\nAgustín: ' + Logica.formatearPesos(c.agustin) + ' · Local: ' + Logica.formatearPesos(c.local) +
+      '\nGastos que paga el local: ' + Logica.formatearPesos(c.gastosLocal) + ' · Le queda al local: ' + Logica.formatearPesos(c.leQuedaLocal) +
       '\n\nEl detalle quedó en la pestaña CIERRE y el resumen en HISTÓRICO.';
   });
 }
@@ -395,13 +396,13 @@ function instalar_() {
     estado: Logica.LISTA_ESTADOS, vuelta: Logica.LISTA_VUELTAS
   });
   asegurarHoja_(HOJAS.ITEMS, ESQUEMAS.ITEMS, informe);
-  asegurarHoja_(HOJAS.GASTOS, ESQUEMAS.GASTOS, informe, { noAfecta: ['sí', 'no'] });
+  asegurarHoja_(HOJAS.GASTOS, ESQUEMAS.GASTOS, informe, { quienPaga: Logica.LISTA_QUIEN_PAGA });
   if (!ss.getSheetByName(HOJAS.CIERRE)) {
     var cierre = ss.insertSheet(HOJAS.CIERRE, ss.getSheets().length);
     cierre.getRange(1, 1).setValue('Acá aparece el detalle del último día que cerraste (menú Avícola → Cerrar el día, o desde la app).');
     informe.push('Creé la pestaña ' + HOJAS.CIERRE + '.');
   }
-  asegurarHoja_(HOJAS.HISTORICO, ESQUEMAS.HISTORICO, informe);
+  asegurarHoja_(HOJAS.HISTORICO, esquemaHistorico_(leerConfig_().porcentajeAgustin), informe);
   asegurarHoja_(HOJAS.AVISOS, ESQUEMAS.AVISOS, informe);
 
   CACHE_ = {};
@@ -816,7 +817,7 @@ function obtenerDatos_() {
       .map(function (p) { return pedidoParaApp_(p, lineas[p.id]); }),
     ultimos: ultimos,
     gastos: leerGastos_().filter(function (g) { return g.fecha >= desde; }).map(function (g) {
-      return { id: g.id, fecha: g.fecha, descripcion: g.descripcion, monto: g.monto || 0, noAfecta: Logica.esSi(g.noAfecta) };
+      return { id: g.id, fecha: g.fecha, descripcion: g.descripcion, monto: g.monto || 0, quienPaga: Logica.normalizarQuienPaga(g.quienPaga) };
     }),
     cierres: historico.filter(function (h) { return h.fecha >= desde; }).map(function (h) { return { fecha: h.fecha, cerrado: h.cerrado }; }),
     hojasImpresas: hojasImpresas_()
@@ -1081,7 +1082,7 @@ function guardarGasto(gasto) {
       fecha: Logica.parsearFecha(gasto.fecha, ahora_().anio) || ahora_().fecha,
       descripcion: Logica.texto(gasto.descripcion),
       monto: Logica.parsearPesos(gasto.monto) || 0,
-      noAfecta: gasto.noAfecta === true || Logica.esSi(gasto.noAfecta) ? 'sí' : 'no'
+      quienPaga: Logica.normalizarQuienPaga(gasto.quienPaga)
     };
     if (!obj.id) throw new Error('El gasto no tiene ID.');
     var existente = objetos_(t, ESQUEMAS.GASTOS).filter(function (g) { return g.id === obj.id; })[0];
@@ -1113,7 +1114,7 @@ function cerrarDia(fecha, retiroReal) {
     var r = Logica.cierreDelDia({
       fecha: fecha,
       pedidos: pedidos,
-      gastos: leerGastos_().map(function (g) { return { id: g.id, fecha: g.fecha, descripcion: g.descripcion, monto: g.monto, noAfecta: Logica.esSi(g.noAfecta) }; }),
+      gastos: leerGastos_().map(function (g) { return { id: g.id, fecha: g.fecha, descripcion: g.descripcion, monto: g.monto, quienPaga: g.quienPaga }; }),
       retiroReal: retiroReal,
       porcentajeAgustin: cfg.porcentajeAgustin,
       medios: cfg.mediosPago,
@@ -1140,6 +1141,7 @@ function escribirCierre_(r, cfg) {
   function encabezado(cols) { subtitulos.push(fila(cols)); }
   function vacia() { fila(['']); }
   var pct = Math.round((r.porcentajeAgustin || 0) * 100);
+  var hayCompartidos = r.gastosCompartidos > 0;
 
   titulos.push(fila(['CIERRE DEL DÍA — ' + Logica.formatearFechaLarga(r.fecha) + ' ' + Logica.formatearFecha(r.fecha).slice(-4)]));
   fila(['Cerrado el ' + r.cerrado]);
@@ -1147,15 +1149,19 @@ function escribirCierre_(r, cfg) {
   titulo('RESUMEN');
   fila(['Pedidos entregados', r.entregados]);
   fila(['Ventas', r.ventas], ['', P]);
-  fila(['Costo', r.costo], ['', P]);
-  fila(['Ganancia bruta', r.gananciaBruta], ['', P]);
+  fila(['Costo de mercadería', r.costo], ['', P]);
+  fila(['Ganancia (ventas − costo de mercadería)', r.ganancia], ['', P]);
   fila(['Margen', r.margen === null ? '' : r.margen], ['', PCT]);
-  fila(['Gastos que afectan la ganancia', r.gastosAfectan], ['', P]);
-  fila(['Ganancia neta', r.gananciaNeta], ['', P]);
-  fila(['Agustín (' + pct + '%)', r.agustin], ['', P]);
-  fila(['Local (' + (100 - pct) + '%)', r.local], ['', P]);
-  fila(['Gastos que no afectan la ganancia', r.gastosNoAfectan], ['', P]);
-  fila(['Retiro calculado (Agustín − gastos que no afectan)', r.retiroCalculado], ['', P]);
+  fila(['Agustín ' + pct + '%', r.agustin], ['', P]);
+  fila(['Local ' + (100 - pct) + '%', r.local], ['', P]);
+  fila(['Gastos que paga el local', r.gastosLocal], ['', P]);
+  if (hayCompartidos) {
+    fila(['Gastos que se reparten entre los dos', r.gastosCompartidos], ['', P]);
+    fila(['   parte de Agustín (' + pct + '%)', r.compartidosAgustin], ['', P]);
+    fila(['   parte del local (' + (100 - pct) + '%)', r.compartidosLocal], ['', P]);
+  }
+  fila(['Le queda al local', r.leQuedaLocal], ['', P]);
+  fila([hayCompartidos ? 'Retiro calculado (Agustín ' + pct + '% − su parte de los gastos que se reparten)' : 'Retiro calculado (Agustín ' + pct + '% completo)', r.retiroCalculado], ['', P]);
   fila(['Retiro real', r.retiroReal === null ? '' : r.retiroReal], ['', P]);
   fila(['Diferencia (real − calculado)', r.diferencia === null ? '' : r.diferencia], ['', P]);
   vacia();
@@ -1169,7 +1175,7 @@ function escribirCierre_(r, cfg) {
     fila([c.cliente, c.telefono, c.detalle, c.cobrado, c.medio || 'Pendiente', c.costo, c.ganancia, c.margen === null ? '' : c.margen],
       ['@', '@', '', P, '', P, P, PCT]);
   });
-  fila(['TOTAL', '', '', r.ventas, '', r.costo, r.gananciaBruta, r.margen === null ? '' : r.margen], ['', '', '', P, '', P, P, PCT]);
+  fila(['TOTAL', '', '', r.ventas, '', r.costo, r.ganancia, r.margen === null ? '' : r.margen], ['', '', '', P, '', P, P, PCT]);
   vacia();
   titulo('UNIDADES POR CATEGORÍA');
   encabezado(['Categoría', 'Cantidad']);
@@ -1181,9 +1187,9 @@ function escribirCierre_(r, cfg) {
   }
   vacia();
   titulo('GASTOS DEL DÍA');
-  encabezado(['Descripción', 'Monto', '¿Afecta la ganancia?']);
+  encabezado(['Descripción', 'Monto', 'Quién lo paga']);
   if (!r.gastos.length) fila(['(sin gastos)']);
-  r.gastos.forEach(function (g) { fila([g.descripcion, g.monto, g.noAfecta ? 'No' : 'Sí'], ['', P]); });
+  r.gastos.forEach(function (g) { fila([g.descripcion, g.monto, g.quienPaga], ['', P]); });
   if (r.sinEstadoFinal.length || r.noEstaban.length || r.costosFaltantes) {
     vacia();
     titulo('AVISOS');
@@ -1210,17 +1216,24 @@ function escribirCierre_(r, cfg) {
   hoja.setColumnWidth(1, 260).setColumnWidth(3, 320);
 }
 
+/** Columnas de HISTÓRICO. Las de Agustín y el local llevan el porcentaje de CONFIG ("Local 30%"). */
+function esquemaHistorico_(porcentajeAgustin) {
+  var pct = Math.round((Number(porcentajeAgustin) || 0) * 100);
+  return ESQUEMAS.HISTORICO.map(function (c) {
+    if (c[0] === 'agustin') return [c[0], 'Agustín ' + pct + '%', c[2]];
+    if (c[0] === 'local') return [c[0], 'Local ' + (100 - pct) + '%', c[2]];
+    return c;
+  });
+}
+
 function guardarHistorico_(r) {
   var hoja = ss_().getSheetByName(HOJAS.HISTORICO);
   var t = tabla_(HOJAS.HISTORICO);
   // Una columna "Cobrado <medio>" por cada medio de pago (se agregan solas si sumás uno en CONFIG).
-  var esquema = ESQUEMAS.HISTORICO.slice();
-  var nuevas = [];
-  r.porMedio.forEach(function (m, i) {
-    var enc = 'Cobrado ' + m.medio;
-    esquema.push(['medio' + i, enc, 'pesos']);
-    if (t.idx[clave_(enc)] === undefined) nuevas.push(enc);
-  });
+  // Si cambia el porcentaje en CONFIG, aparecen columnas nuevas ("Local 35%") y lo viejo queda como estaba.
+  var esquema = esquemaHistorico_(r.porcentajeAgustin);
+  r.porMedio.forEach(function (m, i) { esquema.push(['medio' + i, 'Cobrado ' + m.medio, 'pesos']); });
+  var nuevas = esquema.filter(function (c) { return t.idx[clave_(c[1])] === undefined; }).map(function (c) { return c[1]; });
   if (nuevas.length) {
     var desde = t.enc.length + 1;
     if (hoja.getMaxColumns() < desde + nuevas.length - 1) hoja.insertColumnsAfter(hoja.getMaxColumns(), desde + nuevas.length - 1 - hoja.getMaxColumns());
@@ -1229,12 +1242,14 @@ function guardarHistorico_(r) {
   }
   var obj = {
     fecha: r.fecha, entregados: r.entregados, noEstaban: r.noEstaban.length, ventas: r.ventas, costo: r.costo,
-    gananciaBruta: r.gananciaBruta, gastosAfectan: r.gastosAfectan, gananciaNeta: r.gananciaNeta,
-    margen: r.margen === null ? '' : r.margen, agustin: r.agustin, local: r.local, gastosNoAfectan: r.gastosNoAfectan,
+    ganancia: r.ganancia, margen: r.margen === null ? '' : r.margen, agustin: r.agustin, local: r.local,
+    gastosLocal: r.gastosLocal, gastosCompartidos: r.gastosCompartidos, leQuedaLocal: r.leQuedaLocal,
     retiroCalculado: r.retiroCalculado, retiroReal: r.retiroReal === null ? '' : r.retiroReal,
     diferencia: r.diferencia === null ? '' : r.diferencia, pendienteCobro: r.pendienteCobro,
     costosFaltantes: r.costosFaltantes ? 'sí' : '',
-    detalleGastos: r.gastos.map(function (g) { return g.descripcion + ' ' + Logica.formatearPesos(g.monto) + (g.noAfecta ? ' (no afecta)' : ''); }).join(' · '),
+    detalleGastos: r.gastos.map(function (g) {
+      return g.descripcion + ' ' + Logica.formatearPesos(g.monto) + (g.quienPaga === Logica.QUIEN_PAGA.COMPARTIDO ? ' (se reparte)' : ' (local)');
+    }).join(' · '),
     cerrado: r.cerrado
   };
   r.porMedio.forEach(function (m, i) { obj['medio' + i] = m.monto; });
