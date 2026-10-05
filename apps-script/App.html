@@ -1,0 +1,1851 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<!--
+  App.html — Llegamos! / Avícola Belgrano
+  La web app del celu. Carga todo una sola vez al abrir y guarda en segundo plano:
+  cada cambio se ve al toque y se va subiendo a la planilla en orden (si se corta
+  internet, queda en el celu y se reintenta solo).
+  Las cuentas usan las mismas funciones de Logica.gs que la planilla.
+-->
+<style>
+  :root {
+    --verde: #1b5e20;
+    --verde-medio: #2e7d32;
+    --verde-claro: #e8f5e9;
+    --texto: #1a1a1a;
+    --gris: #5f6368;
+    --borde: #d0d5d0;
+    --fondo: #f4f6f4;
+    --blanco: #ffffff;
+    --rojo: #c62828;
+    --rojo-claro: #ffebee;
+    --ambar: #8a5a00;
+    --ambar-claro: #fff4d6;
+    --azul: #0b57d0;
+    --wa: #128c7e;
+    --nav: 68px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 18px; line-height: 1.35; color: var(--texto); background: var(--fondo);
+    padding-bottom: calc(var(--nav) + 90px + env(safe-area-inset-bottom));
+  }
+  header {
+    position: sticky; top: 0; z-index: 20; background: var(--verde); color: var(--blanco);
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px; min-height: 56px;
+  }
+  .marca { flex: 1; min-width: 0; font-weight: 700; font-size: 16px; line-height: 1.2; }
+  .marca span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .marca small { display: block; font-weight: 400; font-size: 14px; opacity: .9; white-space: nowrap; }
+  .estado-guardado {
+    background: rgba(255,255,255,.16); border: 0; color: var(--blanco); border-radius: 999px;
+    padding: 8px 12px; font-size: 15px; white-space: nowrap; font-family: inherit;
+  }
+  .estado-guardado.error { background: var(--rojo); }
+  .btn-icono {
+    background: rgba(255,255,255,.16); border: 0; color: var(--blanco); width: 44px; height: 44px;
+    border-radius: 12px; font-size: 22px; font-family: inherit;
+  }
+  .badge { background: #ffb300; color: #000; }
+  main { padding: 12px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 6px 0 12px; }
+  h2 { font-size: 20px; margin: 0 0 10px; }
+  h3 { font-size: 16px; margin: 14px 0 6px; color: var(--gris); text-transform: uppercase; letter-spacing: .03em; }
+  nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; background: var(--blanco);
+    border-top: 1px solid var(--borde); height: calc(var(--nav) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav button {
+    flex: 1; border: 0; background: none; font-family: inherit; font-size: 11.5px; letter-spacing: -.2px; color: var(--gris);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px 0;
+  }
+  nav button span { font-size: 24px; line-height: 1; position: relative; }
+  nav button.activa { color: var(--verde); font-weight: 700; background: var(--verde-claro); }
+  nav .contador { position: absolute; top: -6px; right: -16px; background: var(--rojo); color: #fff; border-radius: 999px; font-size: 11px; font-style: normal; font-weight: 700; padding: 1px 6px; }
+
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px; text-align: center;
+    min-height: 54px; padding: 10px 14px; border-radius: 14px; border: 2px solid var(--borde);
+    background: var(--blanco); color: var(--texto); font-size: 18px; font-weight: 600; font-family: inherit;
+    text-decoration: none; width: 100%; cursor: pointer;
+  }
+  .btn:disabled { opacity: .45; }
+  .btn.primario { background: var(--verde); border-color: var(--verde); color: var(--blanco); }
+  .btn.grande { min-height: 62px; font-size: 20px; }
+  .btn.ok { background: var(--verde-medio); border-color: var(--verde-medio); color: var(--blanco); }
+  .btn.plata { background: var(--verde-claro); border-color: var(--verde-medio); color: var(--verde); }
+  .btn.wa { background: var(--wa); border-color: var(--wa); color: var(--blanco); }
+  .btn.no { background: var(--ambar-claro); border-color: #e0b44c; color: var(--ambar); }
+  .btn.peligro { background: var(--rojo-claro); border-color: #e57373; color: var(--rojo); }
+  .btn.chico { min-height: 44px; font-size: 16px; width: auto; padding: 6px 12px; }
+  .btn small { display: block; font-weight: 400; font-size: 14px; color: var(--gris); }
+  .link { background: none; border: 0; color: var(--azul); font-size: 16px; text-decoration: underline; padding: 8px 4px; font-family: inherit; }
+  .fila-btn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .fila-btn.tres { grid-template-columns: 1fr 1fr 1fr; }
+  .pila { display: grid; gap: 8px; }
+
+  .bloque { background: var(--blanco); border-radius: 16px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  label { display: block; font-size: 15px; color: var(--gris); margin: 10px 0 0; }
+  .campo {
+    display: block; width: 100%; font-size: 19px; padding: 12px; margin-top: 4px; border-radius: 12px;
+    border: 2px solid var(--borde); background: var(--blanco); color: var(--texto); font-family: inherit;
+  }
+  .campo:focus { outline: none; border-color: var(--verde-medio); }
+  .campo.falta { border-color: var(--rojo); background: var(--rojo-claro); }
+  .campo.chico { width: 120px; font-size: 17px; padding: 8px; display: inline-block; margin: 0; }
+  .campo.grande { font-size: 24px; font-weight: 700; }
+  textarea.campo { resize: vertical; }
+  .ayuda { font-size: 15px; color: var(--gris); margin: 6px 0; }
+  .aviso { background: var(--ambar-claro); color: var(--ambar); border-radius: 12px; padding: 10px 12px; margin: 8px 0; font-size: 16px; }
+  .aviso.rojo { background: var(--rojo-claro); color: var(--rojo); }
+  .aviso.verde { background: var(--verde-claro); color: var(--verde); }
+  .vacio { text-align: center; color: var(--gris); padding: 24px 8px; }
+  .chip { display: inline-block; font-size: 13px; padding: 2px 8px; border-radius: 999px; background: #eceff1; color: #37474f; margin-left: 4px; vertical-align: middle; font-weight: 600; }
+  .chip.aviso { background: var(--ambar-claro); color: var(--ambar); margin: 0 0 0 4px; padding: 2px 8px; }
+  .chip.rojo { background: var(--rojo-claro); color: var(--rojo); }
+  .chip.verde { background: var(--verde-claro); color: var(--verde); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+  .chip-btn {
+    border: 2px solid var(--borde); background: var(--blanco); border-radius: 999px; padding: 10px 16px;
+    font-size: 17px; font-family: inherit; color: var(--texto); min-height: 46px;
+  }
+  .chip-btn.activo { background: var(--verde); border-color: var(--verde); color: var(--blanco); font-weight: 700; }
+  .segmentado { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .segmentado button { min-height: 50px; border-radius: 12px; border: 2px solid var(--borde); background: var(--blanco); font-size: 18px; font-family: inherit; }
+  .segmentado button.activo { background: var(--verde); border-color: var(--verde); color: var(--blanco); font-weight: 700; }
+
+  .resumen-hoy { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .resumen-hoy div { background: var(--blanco); border-radius: 14px; padding: 10px; text-align: center; }
+  .resumen-hoy b { display: block; font-size: 22px; }
+  .resumen-hoy span { font-size: 13px; color: var(--gris); }
+  .acciones-hoy { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .acciones-hoy .btn { font-size: 15px; min-height: 58px; flex-direction: column; gap: 0; padding: 6px; }
+  .acciones-hoy .btn span { font-size: 22px; }
+
+  .tarjeta { background: var(--blanco); border-radius: 18px; padding: 14px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border-left: 6px solid var(--verde-medio); }
+  .tarjeta.segunda { border-left-color: #1565c0; }
+  .t-cab { display: flex; align-items: flex-start; gap: 10px; }
+  .t-num { background: var(--verde); color: #fff; border-radius: 12px; min-width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 19px; }
+  .t-nombre { font-size: 21px; font-weight: 700; flex: 1; }
+  .t-dir { display: block; margin: 8px 0 2px; font-size: 18px; color: var(--azul); text-decoration: none; font-weight: 600; }
+  .t-dir.falta { color: var(--rojo); }
+  .t-sub { font-size: 15px; color: var(--gris); }
+  .t-lleva { margin: 8px 0; font-size: 17px; }
+  .t-notas { font-size: 15px; background: #fffde7; border-radius: 10px; padding: 6px 10px; margin: 6px 0; }
+  .t-total { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 10px; }
+  .t-total span { font-size: 26px; font-weight: 800; }
+  .t-botones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .t-botones .ancho { grid-column: 1 / -1; }
+  .t-mini { display: grid; grid-template-columns: 56px 56px 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .t-mini button { min-height: 46px; border-radius: 12px; border: 2px solid var(--borde); background: var(--blanco); font-size: 16px; font-family: inherit; }
+  .t-mini button:disabled { opacity: .35; }
+  .resuelta { border-left-color: #9e9e9e; padding: 12px 14px; }
+  .r-fila { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .r-estado { font-size: 15px; color: var(--gris); margin-top: 2px; }
+  .seccion-toggle { width: 100%; text-align: left; background: none; border: 0; font-size: 17px; font-weight: 700; color: var(--gris); padding: 12px 4px; font-family: inherit; }
+
+  .resultado { display: block; width: 100%; text-align: left; border: 2px solid var(--borde); background: var(--blanco); border-radius: 12px; padding: 10px 12px; margin: 6px 0; font-size: 18px; font-family: inherit; color: var(--texto); }
+  .resultado small { display: block; color: var(--gris); font-size: 14px; }
+  .ficha { background: var(--verde-claro); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+  .ficha b { font-size: 20px; }
+
+  .prod { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #eef0ee; padding: 6px 0; }
+  .prod.con { background: var(--verde-claro); border-radius: 12px; }
+  .prod-info { flex: 1; text-align: left; background: none; border: 0; font-size: 17px; font-family: inherit; color: var(--texto); padding: 8px 6px; }
+  .prod-info small { display: block; color: var(--gris); font-size: 14px; }
+  .cant { display: flex; align-items: center; gap: 4px; }
+  .redondo { width: 50px; height: 50px; border-radius: 50%; border: 2px solid var(--verde-medio); background: var(--blanco); color: var(--verde); font-size: 28px; font-weight: 700; line-height: 1; font-family: inherit; }
+  .cant-num { min-width: 40px; text-align: center; font-size: 20px; font-weight: 700; }
+  .linea { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eef0ee; flex-wrap: wrap; }
+  .linea-nombre { flex: 1 1 150px; font-size: 17px; }
+  .linea-precio { display: flex; align-items: center; gap: 6px; }
+  .linea-precio b { min-width: 86px; text-align: right; }
+  .quitar { border: 0; background: none; color: var(--rojo); font-size: 22px; padding: 4px 8px; }
+  .totales { margin-top: 10px; }
+  .totales .fila-total { display: flex; justify-content: space-between; font-size: 18px; margin: 6px 0; }
+  .a-cobrar { display: flex; justify-content: space-between; align-items: center; background: var(--verde); color: #fff; border-radius: 14px; padding: 12px 14px; margin-top: 10px; font-size: 18px; }
+  .a-cobrar b { font-size: 26px; }
+  .pie-form { position: sticky; bottom: calc(var(--nav) + 8px + env(safe-area-inset-bottom)); z-index: 10; display: grid; gap: 8px; margin-top: 8px; }
+
+  .cifras { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .cifras div { background: var(--verde-claro); border-radius: 14px; padding: 10px; }
+  .cifras span { display: block; font-size: 14px; color: var(--gris); }
+  .cifras b { font-size: 22px; }
+  .tabla { width: 100%; border-collapse: collapse; font-size: 16px; }
+  .tabla td { padding: 7px 4px; border-bottom: 1px solid #eef0ee; vertical-align: top; }
+  .tabla td:last-child { text-align: right; white-space: nowrap; font-weight: 600; }
+  details summary { font-weight: 700; font-size: 17px; padding: 8px 0; }
+  .gasto { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eef0ee; }
+  .check { display: flex; align-items: center; gap: 10px; font-size: 17px; color: var(--texto); margin: 12px 0; }
+  .check input { width: 26px; height: 26px; }
+
+  #panel { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 50; display: none; align-items: flex-end; justify-content: center; }
+  #panel.abierto { display: flex; }
+  .panel-caja { background: var(--blanco); width: 100%; max-width: 720px; border-radius: 22px 22px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 88vh; overflow-y: auto; }
+  .panel-caja h2 { margin-top: 0; }
+  #toast {
+    position: fixed; left: 12px; right: 12px; bottom: calc(var(--nav) + 12px + env(safe-area-inset-bottom)); z-index: 40;
+    background: #263238; color: #fff; border-radius: 14px; padding: 12px 14px; font-size: 17px;
+    display: none; align-items: center; justify-content: space-between; gap: 8px; max-width: 696px; margin: 0 auto;
+  }
+  #toast.visible { display: flex; }
+  #toast .link { color: #8ab4f8; font-weight: 700; }
+  .cargando { text-align: center; padding: 60px 16px; color: var(--gris); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marca" id="marca">Reparto</div>
+  <button class="estado-guardado badge" id="badge-avisos" data-a="verAvisos" style="display:none"></button>
+  <button class="estado-guardado" id="estado-guardado" data-a="verCola">✓ Guardado</button>
+  <button class="btn-icono" data-a="refrescar" aria-label="Actualizar datos">↻</button>
+</header>
+
+<main id="pantalla"><div class="cargando">Cargando…</div></main>
+
+<nav id="nav">
+  <button data-a="ir" data-v="hoy"><span>🚚</span>HOY</button>
+  <button data-a="ir" data-v="nuevo"><span>➕</span>NUEVO</button>
+  <button data-a="ir" data-v="ruta"><span>🛒</span>EN RUTA</button>
+  <button data-a="ir" data-v="pendientes"><span>📌</span>PENDIENTES</button>
+  <button data-a="ir" data-v="cierre"><span>💰</span>CIERRE</button>
+</nav>
+
+<div id="toast"></div>
+<div id="panel"><div class="panel-caja" id="panel-caja"></div></div>
+
+<script>
+var Logica = (<?!= fuenteLogica ?>)();
+</script>
+<script>
+var DATOS_INICIALES = <?!= datosJson ?>;
+var ERROR_INICIAL = <?!= errorJson ?>;
+</script>
+<script>
+(function () {
+  'use strict';
+
+  var L = Logica;
+  var TZ = L.ZONA_HORARIA;
+  var CLAVE_COLA = 'llegamos.cola.v1';
+  var CLAVE_PESTANA = 'llegamos.pestana';
+  var MAX_INTENTOS = 5;
+
+  var E = {
+    datos: null,
+    pestana: 'hoy',
+    cola: [],
+    enviando: false,
+    verResueltos: false,
+    form: null,
+    venta: null,
+    cierreFecha: '',
+    retiro: '',
+    gastoNuevo: { descripcion: '', monto: '', noAfecta: false },
+    avisos: [],
+    avisados: {},
+    ocupado: {},
+    ocultoDesde: 0,
+    refrescando: false
+  };
+  var CALLBACKS = {};
+
+  // ───────────────────────────── Utilidades ─────────────────────────────
+
+  function $(id) { return document.getElementById(id); }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function pesos(n) { return L.formatearPesos(n || 0); }
+  function ahora() { return L.partesFechaEnZona(new Date(), TZ); }
+  function hoy() { return ahora().fecha; }
+  function cfg() { return E.datos.config; }
+  function cat() { return E.datos.catalogo; }
+
+  function aleatorio() {
+    var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    var s = '';
+    for (var i = 0; i < 5; i++) s += abc.charAt(Math.floor(Math.random() * abc.length));
+    return s;
+  }
+
+  function guardarLocal(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* sin almacenamiento */ } }
+  function leerLocal(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+
+  function mensajeError(err) { return String(err && err.message ? err.message : err || 'Error desconocido'); }
+
+  function porDato(attr, valor) {
+    var lista = document.querySelectorAll('[' + attr + ']');
+    for (var i = 0; i < lista.length; i++) if (lista[i].getAttribute(attr) === valor) return lista[i];
+    return null;
+  }
+
+  function pedidoPorId(id) {
+    for (var i = 0; i < E.datos.pedidos.length; i++) if (E.datos.pedidos[i].id === id) return E.datos.pedidos[i];
+    return null;
+  }
+
+  function clientePorTel(tel) {
+    for (var i = 0; i < E.datos.clientes.length; i++) if (E.datos.clientes[i].telefono === tel) return E.datos.clientes[i];
+    return null;
+  }
+
+  function telLindo(tel) { return L.formatearTelefono(tel, cfg().caracteristica); }
+
+  function datosMensaje(p) {
+    return {
+      nombre: L.primerNombre(p.cliente),
+      nombre_completo: p.cliente,
+      total: pesos(L.aCobrar(p)),
+      detalle: p.detalle || L.detalleLineas(p.lineas, cat()),
+      direccion: p.direccion,
+      fecha: L.fechaRelativa(p.fechaEntrega, hoy()),
+      negocio: cfg().nombreNegocio
+    };
+  }
+
+  function linkWa(p, plantilla) {
+    if (!L.telefonoValido(p.telefono)) return '';
+    return L.linkWhatsapp(p.telefono, plantilla ? L.completarMensaje(plantilla, datosMensaje(p)) : '', cfg().whatsappBusiness);
+  }
+
+  function etiquetaCobrado(medio) {
+    var palabras = String(medio).trim().split(/\s+/);
+    return palabras.length > 1 ? L.etiquetaCorta(medio) : medio.toLowerCase();
+  }
+
+  function iconoMedio(medio) {
+    var n = L.normalizarTexto(medio);
+    if (/efect/.test(n)) return '💵';
+    if (/transf/.test(n)) return '🏦';
+    return '📱';
+  }
+
+  // ───────────────────────────── Datos ─────────────────────────────
+
+  function prepararDatos(d) {
+    d.catalogo.porCodigo = {};
+    d.catalogo.items.forEach(function (it) { d.catalogo.porCodigo[it.codigo] = it; });
+    d.pedidos = d.pedidos || [];
+    d.clientes = d.clientes || [];
+    d.ultimos = d.ultimos || {};
+    d.gastos = d.gastos || [];
+    d.cierres = d.cierres || [];
+    d.hojasImpresas = d.hojasImpresas || [];
+    d.zonas = d.zonas || [];
+    return d;
+  }
+
+  function contexto() {
+    return {
+      catalogo: cat(),
+      config: cfg(),
+      ahora: ahora().sello,
+      hojasImpresas: E.datos.hojasImpresas,
+      ordenes: L.ordenesPorFecha(E.datos.pedidos)
+    };
+  }
+
+  function lineasParaApp(lineas) {
+    return lineas.map(function (l) {
+      return { codigo: l.codigo, cantidad: l.cantidad, precioUnitario: l.precioUnitario, costoUnitario: l.costoUnitario, descripcion: l.descripcion };
+    });
+  }
+
+  // Lo que cada operación hace en el celu (se usa al tocar y al volver a abrir con cosas sin subir).
+  var LOCAL = {
+    guardarPedido: function (datos) {
+      var existente = pedidoPorId(datos.id);
+      var r = L.prepararPedido(datos, existente, contexto());
+      var p = r.pedido;
+      p.lineas = lineasParaApp(r.lineas);
+      if (existente) Object.assign(existente, p); else E.datos.pedidos.push(p);
+      if (L.telefonoValido(p.telefono)) {
+        var c = clientePorTel(p.telefono);
+        var datosCli = { nombre: p.cliente, direccion: p.direccion, entreCalles: p.entreCalles, barrio: p.barrio, referencia: p.referencia };
+        if (!c) {
+          E.datos.clientes.push(Object.assign({ telefono: p.telefono, cantidadCompras: 0, ultimaCompra: '' }, datosCli));
+        } else {
+          Object.assign(c, L.cambiosCliente(c, datosCli, datos.guardarDireccion !== false));
+        }
+        E.datos.ultimos[p.telefono] = { fecha: p.fechaEntrega, detalle: p.detalle, lineas: p.lineas };
+      }
+      return existente || p;
+    },
+    actualizarPedido: function (id, cambios) {
+      var p = pedidoPorId(id);
+      if (!p) return null;
+      Object.assign(p, L.aplicarCambiosPedido(p, cambios, contexto()).pedido);
+      return p;
+    },
+    guardarOrden: function (fecha, ids) {
+      ids.forEach(function (id, i) { var p = pedidoPorId(id); if (p) p.orden = i + 1; });
+    },
+    guardarGasto: function (g) {
+      var lista = E.datos.gastos.filter(function (x) { return x.id !== g.id; });
+      lista.push({ id: g.id, fecha: g.fecha, descripcion: g.descripcion, monto: L.parsearPesos(g.monto) || 0, noAfecta: !!g.noAfecta });
+      E.datos.gastos = lista;
+    },
+    borrarGasto: function (id) {
+      E.datos.gastos = E.datos.gastos.filter(function (x) { return x.id !== id; });
+    }
+  };
+
+  // ───────────────────────────── Cola de guardado ─────────────────────────────
+
+  function guardarCola() {
+    guardarLocal(CLAVE_COLA, E.cola.filter(function (o) { return o.persistir; }).map(function (o) {
+      return { id: o.id, tipo: o.tipo, args: o.args, persistir: true, clave: o.clave, intentos: o.intentos, trabada: o.trabada, ultimoError: o.ultimoError };
+    }));
+  }
+
+  /** Aplica el cambio en el celu y lo deja en la cola para subirlo. */
+  function accion(tipo, args, opciones) {
+    var res = LOCAL[tipo] ? LOCAL[tipo].apply(null, args) : null;
+    encolar(tipo, args, opciones);
+    return res;
+  }
+
+  function encolar(tipo, args, opciones) {
+    opciones = opciones || {};
+    var op = {
+      id: Date.now().toString(36) + aleatorio(), tipo: tipo, args: args,
+      persistir: opciones.persistir !== false, clave: opciones.clave || '', intentos: 0
+    };
+    if (op.clave) E.cola = E.cola.filter(function (o) { return o.clave !== op.clave || o.enVuelo; });
+    if (opciones.alTerminar || opciones.alFallar) CALLBACKS[op.id] = opciones;
+    E.cola.push(op);
+    guardarCola();
+    pintarEstadoGuardado();
+    procesarCola();
+    return op;
+  }
+
+  function idDeOp(o) {
+    if (o.tipo === 'guardarPedido') return o.args[0].id;
+    if (o.tipo === 'actualizarPedido') return o.args[0];
+    return null;
+  }
+
+  // Siguiente cambio a subir: se saltea lo que quedó trabado (y lo que depende de eso).
+  function siguienteOp() {
+    var bloqueados = {};
+    for (var i = 0; i < E.cola.length; i++) {
+      var o = E.cola[i];
+      var id = idDeOp(o) || ('*' + o.tipo);
+      if (o.trabada) { bloqueados[id] = true; continue; }
+      if (bloqueados[id]) continue;
+      return o;
+    }
+    return null;
+  }
+
+  function procesarCola() {
+    if (E.enviando) return;
+    if (E.esperaHasta && Date.now() < E.esperaHasta) return;
+    var op = siguienteOp();
+    if (!op) { pintarEstadoGuardado(); return; }
+    E.enviando = true;
+    op.enVuelo = true;
+    pintarEstadoGuardado();
+    var corredor = google.script.run
+      .withSuccessHandler(function (res) {
+        E.enviando = false;
+        op.enVuelo = false;
+        E.cola = E.cola.filter(function (o) { return o !== op; });
+        guardarCola();
+        alResponder(op, res);
+        procesarCola();
+      })
+      .withFailureHandler(function (err) {
+        E.enviando = false;
+        op.enVuelo = false;
+        op.intentos++;
+        op.ultimoError = mensajeError(err);
+        var cb = CALLBACKS[op.id];
+        if (!op.persistir) {
+          E.cola = E.cola.filter(function (o) { return o !== op; });
+          delete CALLBACKS[op.id];
+          guardarCola();
+          if (cb && cb.alFallar) cb.alFallar(op.ultimoError); else toast('⚠️ ' + op.ultimoError);
+          procesarCola();
+          return;
+        }
+        if (op.intentos >= MAX_INTENTOS) op.trabada = true;
+        guardarCola();
+        pintarEstadoGuardado();
+        if (!op.trabada) {
+          var espera = Math.min(30000, 1500 * Math.pow(2, op.intentos));
+          E.esperaHasta = Date.now() + espera;
+          setTimeout(function () { E.esperaHasta = 0; procesarCola(); }, espera);
+        } else {
+          toast('⚠️ No se pudo guardar un cambio. Tocá el aviso de arriba.');
+          procesarCola();
+        }
+      });
+    corredor[op.tipo].apply(corredor, op.args);
+  }
+
+  function alResponder(op, res) {
+    var cb = CALLBACKS[op.id];
+    delete CALLBACKS[op.id];
+    if ((op.tipo === 'guardarPedido' || op.tipo === 'actualizarPedido') && res && res.pedido) {
+      var id = res.pedido.id;
+      var quedanCambios = E.cola.some(function (o) { return idDeOp(o) === id; });
+      if (!quedanCambios) {
+        var local = pedidoPorId(id);
+        if (local) Object.assign(local, res.pedido); else E.datos.pedidos.push(res.pedido);
+        repintarSiConviene();
+      }
+    }
+    if (cb && cb.alTerminar) cb.alTerminar(res);
+    pintarEstadoGuardado();
+  }
+
+  function reaplicarCola() {
+    E.cola.forEach(function (op) {
+      if (op.persistir && LOCAL[op.tipo]) {
+        try { LOCAL[op.tipo].apply(null, op.args); } catch (e) { /* si ya no aplica, se ignora */ }
+      }
+    });
+  }
+
+  function pintarEstadoGuardado() {
+    var el = $('estado-guardado');
+    if (!el) return;
+    var trabadas = E.cola.filter(function (o) { return o.trabada; }).length;
+    var pendientes = E.cola.filter(function (o) { return o.persistir; }).length;
+    el.classList.toggle('error', trabadas > 0);
+    if (trabadas) el.textContent = '⚠️ Sin guardar (' + trabadas + ')';
+    else if (E.refrescando) el.textContent = '↻ Actualizando';
+    else if (pendientes || E.enviando) el.textContent = '⏳ Guardando' + (pendientes ? ' (' + pendientes + ')' : '');
+    else el.textContent = '✓ Guardado';
+  }
+
+  // ───────────────────────────── Navegación y pintado ─────────────────────────────
+
+  function irA(pestana) {
+    E.pestana = pestana;
+    guardarLocal(CLAVE_PESTANA, pestana);
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  function render() {
+    if (!E.datos) return;
+    var botones = document.querySelectorAll('#nav button');
+    for (var i = 0; i < botones.length; i++) botones[i].classList.toggle('activa', botones[i].getAttribute('data-v') === E.pestana);
+    var vistas = { hoy: vistaHoy, nuevo: vistaNuevo, ruta: vistaRuta, pendientes: vistaPendientes, cierre: vistaCierre };
+    $('pantalla').innerHTML = (vistas[E.pestana] || vistaHoy)();
+    pintarContadorPendientes();
+    if (E.pestana === 'nuevo' || E.pestana === 'ruta') { pintarAvisoTelefono(); pintarAvisoBarrio(); }
+  }
+
+  function repintarSiConviene() {
+    if (E.pestana === 'hoy' || E.pestana === 'pendientes') render();
+    else if (E.pestana === 'cierre') pintarResumenCierre();
+    pintarContadorPendientes();
+  }
+
+  function pintarMarca() {
+    var c = cfg();
+    $('marca').innerHTML = '<span>' + esc(c.nombreNegocio || 'Reparto') + '</span><small>' + esc(L.formatearFechaLarga(hoy())) + '</small>';
+  }
+
+  function pintarContadorPendientes() {
+    var h = hoy();
+    var n = E.datos.pedidos.filter(function (p) { return L.motivoPendiente(p, h); }).length;
+    var b = document.querySelector('#nav [data-v="pendientes"]');
+    if (b) b.innerHTML = '<span>📌' + (n ? '<i class="contador">' + n + '</i>' : '') + '</span>PENDIENTES';
+  }
+
+  function pintarBadgeAvisos() {
+    var b = $('badge-avisos');
+    var n = E.avisos.length;
+    b.style.display = n ? '' : 'none';
+    b.textContent = '⚠️ ' + n;
+  }
+
+  function toast(mensaje, boton) {
+    var t = $('toast');
+    t.innerHTML = '<span>' + esc(mensaje) + '</span>' + (boton ? '<button class="link" id="toast-boton">' + esc(boton.texto) + '</button>' : '');
+    t.classList.add('visible');
+    clearTimeout(E.timerToast);
+    E.timerToast = setTimeout(function () { t.classList.remove('visible'); }, boton ? 6000 : 3500);
+    if (boton) $('toast-boton').onclick = function () { t.classList.remove('visible'); boton.fn(); };
+  }
+
+  function abrirPanel(html) {
+    $('panel-caja').innerHTML = html;
+    $('panel').classList.add('abierto');
+  }
+
+  function cerrarPanel() { $('panel').classList.remove('abierto'); }
+
+  // ───────────────────────────── HOY ─────────────────────────────
+
+  function pedidosDeHoy() {
+    var h = hoy();
+    return E.datos.pedidos.filter(function (p) {
+      return p.fechaEntrega === h && L.normalizarEstado(p.estado) !== L.ESTADOS.CANCELADO;
+    });
+  }
+
+  function vistaHoy() {
+    var c = cfg();
+    var lista = L.ordenarParaHoy(pedidosDeHoy());
+    var pendientes = lista.filter(function (p) { return !L.esEstadoFinal(p.estado); });
+    var resueltos = lista.filter(function (p) { return L.esEstadoFinal(p.estado); });
+    var cobrado = 0;
+    var entregados = 0;
+    resueltos.forEach(function (p) {
+      if (L.normalizarEstado(p.estado) === L.ESTADOS.ENTREGADO) {
+        entregados++;
+        if (p.medio) cobrado += L.aCobrar(p);
+      }
+    });
+    var html = '';
+    if (c.faltantes.length) html += '<div class="aviso rojo">Faltan datos en CONFIG: ' + esc(c.faltantes.join(', ')) + '.</div>';
+    html += '<div class="resumen-hoy">' +
+      '<div><b>' + pendientes.length + '</b><span>por entregar</span></div>' +
+      '<div><b>' + entregados + '</b><span>entregados</span></div>' +
+      '<div><b>' + esc(pesos(cobrado)) + '</b><span>cobrado</span></div></div>';
+    html += '<div class="acciones-hoy">' +
+      '<button class="btn" data-a="ordenar"' + (E.ocupado.ordenar ? ' disabled' : '') + '><span>🧭</span>' + (E.ocupado.ordenar ? 'Ordenando…' : 'Ordenar ruta') + '</button>' +
+      '<button class="btn" data-a="rutaMaps"><span>🗺️</span>Ruta en Maps</button>' +
+      '<button class="btn" data-a="hoja"' + (E.ocupado.hoja ? ' disabled' : '') + '><span>📄</span>' + (E.ocupado.hoja ? 'Armando…' : 'Hoja PDF') + '</button></div>';
+    if (!pendientes.length) {
+      html += '<div class="vacio">' + (resueltos.length ? '¡Listo! No queda nada por entregar hoy 🎉' : 'No hay pedidos para hoy.') +
+        '<br><br><button class="btn primario" data-a="ir" data-v="nuevo">➕ Cargar un pedido</button></div>';
+    }
+    pendientes.forEach(function (p, i) { html += tarjetaPedido(p, i, pendientes.length); });
+    if (resueltos.length) {
+      html += '<button class="seccion-toggle" data-a="verResueltos">' + (E.verResueltos ? '▾' : '▸') + ' Resueltos hoy (' + resueltos.length + ')</button>';
+      if (E.verResueltos) resueltos.forEach(function (p) { html += tarjetaResuelta(p); });
+    }
+    return html;
+  }
+
+  function botonesCobro(p) {
+    return cfg().mediosPago.map(function (m) {
+      return '<button class="btn plata" data-a="cobrado" data-id="' + esc(p.id) + '" data-medio="' + esc(m) + '">' +
+        iconoMedio(m) + ' Cobrado ' + esc(etiquetaCobrado(m)) + '</button>';
+    }).join('');
+  }
+
+  function tarjetaPedido(p, i, total) {
+    var c = cfg();
+    var id = esc(p.id);
+    var completa = L.direccionCompleta(p.direccion);
+    var linkVoy = linkWa(p, c.mensajeAvisoVoy);
+    var linkNo = linkWa(p, c.mensajeNoEstaba);
+    var vuelta = L.normalizarVuelta(p.vuelta);
+    var chips = (vuelta === L.VUELTAS.SEGUNDA ? '<span class="chip">2da</span>' : '') +
+      (p.horario ? '<span class="chip aviso">🕒 ' + esc(p.horario) + '</span>' : '') +
+      (E.avisados[p.id] ? '<span class="chip verde">avisado ' + esc(E.avisados[p.id]) + '</span>' : '');
+    var sub = [p.entreCalles ? 'e/ ' + p.entreCalles : '', p.referencia].filter(Boolean).join(' · ');
+    var medios = c.mediosPago;
+    var cobroImpar = (1 + medios.length) % 2 === 1;
+    return '<article class="tarjeta' + (vuelta === L.VUELTAS.SEGUNDA ? ' segunda' : '') + '" id="p-' + id + '">' +
+      '<div class="t-cab"><span class="t-num">' + (i + 1) + '</span><div class="t-nombre">' + esc(p.cliente) + ' ' + chips + '</div></div>' +
+      (completa
+        ? '<a class="t-dir" target="_blank" href="' + esc(L.linkMapsBusqueda(L.direccionParaMapa(p, c))) + '">📍 ' + esc(p.direccion) + (p.barrio ? ' · ' + esc(p.barrio) : '') + '</a>'
+        : '<div class="t-dir falta">📍 Falta la dirección</div>') +
+      (sub ? '<div class="t-sub">' + esc(sub) + '</div>' : '') +
+      '<div class="t-lleva">' + esc(p.detalle || L.detalleLineas(p.lineas, cat())) + '</div>' +
+      (p.notas ? '<div class="t-notas">📝 ' + esc(p.notas) + '</div>' : '') +
+      '<div class="t-total"><span>' + esc(pesos(L.aCobrar(p))) + '</span><button class="link" data-a="monto" data-id="' + id + '">cambiar monto</button></div>' +
+      '<div class="t-botones">' +
+        (linkVoy
+          ? '<a class="btn wa ancho" target="_blank" href="' + esc(linkVoy) + '" data-a="avisar" data-id="' + id + '">📲 Avisar que voy</a>'
+          : '<button class="btn wa ancho" disabled>📲 ' + (L.telefonoValido(p.telefono) ? 'Falta el mensaje en CONFIG' : 'Sin teléfono') + '</button>') +
+        '<button class="btn ok" data-a="entregado" data-id="' + id + '">✅ Entregado</button>' +
+        botonesCobro(p) +
+        (linkNo
+          ? '<a class="btn no' + (cobroImpar ? '' : ' ancho') + '" target="_blank" href="' + esc(linkNo) + '" data-a="noEstaba" data-id="' + id + '">🚪 No estaba</a>'
+          : '<button class="btn no' + (cobroImpar ? '' : ' ancho') + '" data-a="noEstaba" data-id="' + id + '">🚪 No estaba</button>') +
+      '</div>' +
+      '<div class="t-mini">' +
+        '<button data-a="subir" data-id="' + id + '"' + (i === 0 ? ' disabled' : '') + ' aria-label="Subir">↑</button>' +
+        '<button data-a="bajar" data-id="' + id + '"' + (i === total - 1 ? ' disabled' : '') + ' aria-label="Bajar">↓</button>' +
+        '<button data-a="editar" data-id="' + id + '">✏️ Editar</button>' +
+        '<button data-a="cancelar" data-id="' + id + '">✖ Cancelar</button>' +
+      '</div></article>';
+  }
+
+  function tarjetaResuelta(p) {
+    var est = L.normalizarEstado(p.estado);
+    var id = esc(p.id);
+    var texto = est === L.ESTADOS.ENTREGADO ? (p.medio ? '✅ ' + p.medio : '🟡 Entregado, falta cobrar') : '🚪 No estaba (en PENDIENTES)';
+    if (L.normalizarVuelta(p.vuelta) === L.VUELTAS.EN_RUTA) texto += ' · venta en ruta';
+    return '<article class="tarjeta resuelta"><div class="r-fila"><div><b>' + esc(p.cliente) + '</b> · ' + esc(pesos(L.aCobrar(p))) +
+      '<div class="r-estado">' + esc(texto) + '</div></div>' +
+      '<button class="btn chico" data-a="deshacer" data-id="' + id + '">Deshacer</button></div>' +
+      (est === L.ESTADOS.ENTREGADO && !p.medio ? '<div class="fila-btn" style="margin-top:8px">' + botonesCobro(p) + '</div>' : '') +
+      '</article>';
+  }
+
+  function cambiarEstado(id, cambios, mensaje) {
+    var antes = pedidoPorId(id);
+    if (!antes) return;
+    var previo = { estado: antes.estado, medio: antes.medio };
+    accion('actualizarPedido', [id, cambios]);
+    render();
+    toast(mensaje, {
+      texto: 'Deshacer',
+      fn: function () {
+        accion('actualizarPedido', [id, { estado: previo.estado || L.ESTADOS.CONFIRMADO, medio: previo.medio || '' }]);
+        render();
+      }
+    });
+  }
+
+  function moverPedido(id, delta) {
+    var lista = L.ordenarParaHoy(pedidosDeHoy());
+    var pendientes = lista.filter(function (p) { return !L.esEstadoFinal(p.estado); });
+    var i = pendientes.map(function (p) { return p.id; }).indexOf(id);
+    var j = i + delta;
+    if (i < 0 || j < 0 || j >= pendientes.length) return;
+    var tmp = pendientes[i]; pendientes[i] = pendientes[j]; pendientes[j] = tmp;
+    var resueltos = lista.filter(function (p) { return L.esEstadoFinal(p.estado); });
+    var ids = resueltos.concat(pendientes).map(function (p) { return p.id; });
+    accion('guardarOrden', [hoy(), ids], { clave: 'orden-' + hoy() });
+    render();
+    var el = $('p-' + id);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+  }
+
+  function panelVuelta(titulo, accionNombre) {
+    abrirPanel('<h2>' + esc(titulo) + '</h2><div class="pila">' +
+      '<button class="btn primario" data-a="' + accionNombre + '" data-v="todas">Todo el día</button>' +
+      '<button class="btn" data-a="' + accionNombre + '" data-v="1ra">1ra vuelta</button>' +
+      '<button class="btn" data-a="' + accionNombre + '" data-v="2da">2da vuelta</button>' +
+      '<button class="btn" data-a="cerrarPanel">Cerrar</button></div>');
+  }
+
+  function ordenarRuta(vuelta) {
+    cerrarPanel();
+    E.ocupado.ordenar = true;
+    render();
+    encolar('ordenarRuta', [hoy(), vuelta], {
+      persistir: false,
+      alTerminar: function (res) {
+        E.ocupado.ordenar = false;
+        res.orden.forEach(function (s) { var p = pedidoPorId(s.id); if (p) p.orden = s.orden; });
+        if (E.pestana === 'hoy') render();
+        if (res.avisos.length) {
+          abrirPanel('<h2>Ruta ordenada</h2>' + res.avisos.map(function (a) { return '<div class="aviso">' + esc(a) + '</div>'; }).join('') +
+            '<button class="btn primario" data-a="cerrarPanel">Entendido</button>');
+        } else {
+          toast('Ruta ordenada ✓');
+        }
+      },
+      alFallar: function (msg) {
+        E.ocupado.ordenar = false;
+        if (E.pestana === 'hoy') render();
+        toast('⚠️ No pude ordenar: ' + msg);
+      }
+    });
+  }
+
+  function linksRutaHoy() {
+    var c = cfg();
+    var pendientes = L.ordenarParaHoy(pedidosDeHoy()).filter(function (p) {
+      return !L.esEstadoFinal(p.estado) && L.direccionCompleta(p.direccion);
+    });
+    return L.armarLinksRuta(c.direccionLocal, pendientes.map(function (p) { return L.direccionParaMapa(p, c); }), c.paradasPorLink);
+  }
+
+  function generarHoja(vuelta) {
+    cerrarPanel();
+    E.ocupado.hoja = true;
+    render();
+    encolar('generarHoja', [hoy(), vuelta], {
+      persistir: false,
+      alTerminar: function (res) {
+        E.ocupado.hoja = false;
+        if (res.vuelta !== L.VUELTAS.SEGUNDA && E.datos.hojasImpresas.indexOf(res.fecha) < 0) E.datos.hojasImpresas.push(res.fecha);
+        if (E.pestana === 'hoy') render();
+        abrirPanel('<h2>Hoja lista ✓</h2><p>' + esc(res.nombre) + ' · ' + res.cantidad + ' pedido(s).</p>' +
+          '<div class="pila"><a class="btn primario" target="_blank" href="' + esc(res.url) + '">📄 Abrir la hoja (PDF)</a>' +
+          '<button class="btn" data-a="cerrarPanel">Cerrar</button></div>' +
+          (res.vuelta !== L.VUELTAS.SEGUNDA ? '<p class="ayuda">Lo que cargues ahora para hoy va a la 2da vuelta.</p>' : ''));
+      },
+      alFallar: function (msg) {
+        E.ocupado.hoja = false;
+        if (E.pestana === 'hoy') render();
+        toast('⚠️ No pude armar la hoja: ' + msg);
+      }
+    });
+  }
+
+  // ───────────────────────────── Formulario de pedido (NUEVO y editar) ─────────────────────────────
+
+  function formVacio() {
+    var c = cfg();
+    var a = ahora();
+    return {
+      modo: 'nuevo', id: '', volverA: 'nuevo', etapaCliente: 'buscar', busqueda: '', clienteTel: '',
+      nombre: '', telefono: '', direccion: '', entreCalles: '', barrio: '', barrioOtro: '', referencia: '',
+      mismaDireccion: true, guardarDireccion: true,
+      lineas: {}, ordenLineas: [], filtro: '',
+      envio: c.envioPorDefecto ? String(c.envioPorDefecto) : '', totalCobrado: '', totalEditado: false,
+      fechaEntrega: L.fechaEntregaPorDefecto(a.fecha, a.hora, c.horaCorte, c.diasSinReparto),
+      horario: '', origen: '', notas: ''
+    };
+  }
+
+  function ventaVacia() {
+    return {
+      modo: 'ruta', etapaCliente: 'buscar', busqueda: '', clienteTel: '', nombre: '', telefono: '', direccion: '',
+      lineas: {}, ordenLineas: [], filtro: '', totalCobrado: '', totalEditado: false, envio: '',
+      medio: null, notas: ''
+    };
+  }
+
+  function formActual() {
+    if (E.pestana === 'ruta') return E.venta || (E.venta = ventaVacia());
+    return E.form || (E.form = formVacio());
+  }
+
+  function calculoForm(f) {
+    var lineas = f.ordenLineas.map(function (codigo) {
+      var l = f.lineas[codigo];
+      return { codigo: codigo, cantidad: l.cantidad, precioUnitario: l.precioManual, descripcion: l.descripcion };
+    });
+    return L.calcularPedido(lineas, cat(), { umbralMayorista: cfg().umbralMayorista });
+  }
+
+  function totalCobradoForm(f, calc) {
+    if (f.totalEditado && String(f.totalCobrado).trim() !== '') return L.parsearPesos(f.totalCobrado);
+    return calc.totalSugerido;
+  }
+
+  function aCobrarForm(f, calc) {
+    return (totalCobradoForm(f, calc) || 0) + (L.parsearPesos(f.envio) || 0);
+  }
+
+  function zonasOrdenadas() {
+    var grupos = { si: [], consultar: [], no: [], otro: [] };
+    E.datos.zonas.forEach(function (z) {
+      var est = L.clasificarZona(z.barrio, E.datos.zonas).estado;
+      (grupos[est] || grupos.otro).push(z.barrio);
+    });
+    return grupos;
+  }
+
+  function selectBarrio(f) {
+    var g = zonasOrdenadas();
+    var conocido = E.datos.zonas.some(function (z) { return L.normalizarTexto(z.barrio) === L.normalizarTexto(f.barrio); });
+    function opciones(lista) {
+      return lista.map(function (b) {
+        return '<option value="' + esc(b) + '"' + (L.normalizarTexto(b) === L.normalizarTexto(f.barrio) ? ' selected' : '') + '>' + esc(b) + '</option>';
+      }).join('');
+    }
+    return '<select class="campo" data-campo="barrio">' +
+      '<option value="">Elegí el barrio</option>' +
+      (g.si.length ? '<optgroup label="Llegamos">' + opciones(g.si) + '</optgroup>' : '') +
+      (g.consultar.length ? '<optgroup label="Hay que consultar">' + opciones(g.consultar) + '</optgroup>' : '') +
+      (g.no.length ? '<optgroup label="No llegamos">' + opciones(g.no) + '</optgroup>' : '') +
+      (g.otro.length ? '<optgroup label="Otros">' + opciones(g.otro) + '</optgroup>' : '') +
+      '<option value="__otro"' + (f.barrio === '__otro' || (f.barrio && !conocido) ? ' selected' : '') + '>Otro barrio…</option>' +
+      '</select>' +
+      '<input class="campo" data-campo="barrioOtro" placeholder="Escribí el barrio" autocomplete="off" value="' + esc(f.barrioOtro || (f.barrio && !conocido && f.barrio !== '__otro' ? f.barrio : '')) + '" style="display:' + (f.barrio === '__otro' || (f.barrio && !conocido) ? 'block' : 'none') + '">' +
+      '<div id="aviso-barrio"></div>';
+  }
+
+  function barrioForm(f) {
+    var conocido = E.datos.zonas.some(function (z) { return L.normalizarTexto(z.barrio) === L.normalizarTexto(f.barrio); });
+    if (f.barrio === '__otro' || (f.barrio && !conocido)) return String(f.barrioOtro || '').trim();
+    return f.barrio;
+  }
+
+  function camposDireccion(f) {
+    return '<label>Calle y altura<input class="campo" data-campo="direccion" autocomplete="off" autocapitalize="words" enterkeyhint="next" placeholder="ej: Calle 14 1234" value="' + esc(f.direccion) + '"></label>' +
+      '<label>Entre calles<input class="campo" data-campo="entreCalles" autocomplete="off" autocapitalize="words" enterkeyhint="next" placeholder="ej: 13 y 15" value="' + esc(f.entreCalles) + '"></label>' +
+      '<label>Barrio</label>' + selectBarrio(f) +
+      '<label>Referencia<input class="campo" data-campo="referencia" autocomplete="off" autocapitalize="sentences" enterkeyhint="next" placeholder="ej: portón rojo" value="' + esc(f.referencia) + '"></label>';
+  }
+
+  function camposNombreTel(f, telefonoOpcional) {
+    return '<label>Nombre<input class="campo" data-campo="nombre" autocomplete="off" autocapitalize="words" enterkeyhint="next" value="' + esc(f.nombre) + '"></label>' +
+      '<label>Teléfono' + (telefonoOpcional ? ' (opcional, pero sin él no le podés volver a escribir)' : '') +
+      '<input class="campo" data-campo="telefono" inputmode="tel" autocomplete="off" placeholder="11 1234-5678" value="' + esc(f.telefono) + '"></label>' +
+      '<div id="aviso-tel" class="ayuda"></div>';
+  }
+
+  function htmlResultados(f) {
+    var q = String(f.busqueda || '').trim();
+    if (!q) return '';
+    var res = L.buscarClientes(E.datos.clientes, q, 8);
+    var html = res.map(function (c) {
+      return '<button class="resultado" data-a="elegirCliente" data-tel="' + esc(c.telefono) + '"><b>' + esc(c.nombre || 'Sin nombre') + '</b>' +
+        '<small>' + esc(telLindo(c.telefono)) + (c.direccion ? ' · ' + esc(c.direccion) : '') + (c.cantidadCompras ? ' · ' + c.cantidadCompras + ' compra(s)' : '') + '</small></button>';
+    }).join('');
+    if (!res.length) html = '<p class="ayuda">No encontré a nadie con “' + esc(q) + '”.</p>';
+    return html;
+  }
+
+  function htmlCliente(f) {
+    if (f.etapaCliente === 'buscar') {
+      return '<h2>Cliente</h2>' +
+        '<input class="campo" data-campo="busqueda" placeholder="Buscá por nombre o teléfono" autocomplete="off" autocapitalize="words" value="' + esc(f.busqueda) + '">' +
+        '<div id="resultados">' + htmlResultados(f) + '</div>' +
+        '<button class="btn" data-a="clienteNuevo" style="margin-top:8px">➕ Cliente nuevo</button>';
+    }
+    if (f.etapaCliente === 'existente') {
+      var c = clientePorTel(f.clienteTel) || {};
+      var ult = E.datos.ultimos[f.clienteTel];
+      var html = '<h2>Cliente</h2><div class="ficha"><b>' + esc(c.nombre || 'Sin nombre') + '</b><div>' + esc(telLindo(c.telefono)) + '</div>' +
+        (c.direccion ? '<div>📍 ' + esc([c.direccion, c.barrio].filter(Boolean).join(' · ')) + '</div>' : '<div class="ayuda">Sin dirección guardada</div>') +
+        '<button class="link" data-a="cambiarCliente">Cambiar de cliente</button></div>';
+      if (!c.nombre) html += '<label>Nombre<input class="campo" data-campo="nombre" autocomplete="off" autocapitalize="words" value="' + esc(f.nombre) + '"></label>';
+      if (ult && ult.lineas && ult.lineas.length) {
+        html += '<button class="btn" data-a="repetir">🔁 Repetir el último pedido<small>' + esc(L.formatearFechaCorta(ult.fecha)) + ': ' + esc(L.acortar(ult.detalle || L.detalleLineas(ult.lineas, cat()), 70)) + '</small></button>';
+      }
+      if (c.direccion) {
+        html += '<div class="etiqueta" style="margin-top:12px;font-weight:700">¿A la misma dirección?</div>' +
+          '<div class="segmentado"><button data-a="mismaDir" data-v="si" class="' + (f.mismaDireccion ? 'activo' : '') + '">Sí</button>' +
+          '<button data-a="mismaDir" data-v="no" class="' + (!f.mismaDireccion ? 'activo' : '') + '">No, otra</button></div>';
+      }
+      if (!f.mismaDireccion || !c.direccion) {
+        html += camposDireccion(f) +
+          '<label class="check"><input type="checkbox" data-campo-check="guardarDireccion"' + (f.guardarDireccion ? ' checked' : '') + '> Guardarla como su dirección</label>';
+      }
+      return html;
+    }
+    return '<h2>Cliente' + (f.modo === 'editar' ? '' : ' nuevo') + '</h2>' + camposNombreTel(f, f.modo === 'editar' && !f.telefono) + camposDireccion(f) +
+      (f.modo === 'editar' ? '' : '<button class="link" data-a="cambiarCliente">Buscar un cliente que ya existe</button>');
+  }
+
+  function gruposProductos() {
+    var c = cfg();
+    var items = cat().items.filter(function (it) { return it.activo; });
+    var promos = items.filter(function (it) { return it.tipo === 'promo'; });
+    var porCat = {};
+    items.filter(function (it) { return it.tipo !== 'promo'; }).forEach(function (it) {
+      (porCat[it.categoria] = porCat[it.categoria] || []).push(it);
+    });
+    var orden = (c.ordenCategorias || []).map(L.normalizarTexto);
+    var cats = Object.keys(porCat).sort(function (a, b) {
+      var ia = orden.indexOf(L.normalizarTexto(a)); var ib = orden.indexOf(L.normalizarTexto(b));
+      return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib) || a.localeCompare(b);
+    });
+    var grupos = [];
+    if (promos.length) grupos.push({ nombre: 'Promos', items: promos });
+    cats.forEach(function (k) { grupos.push({ nombre: k, items: porCat[k] }); });
+    return grupos;
+  }
+
+  function filaProducto(it, f) {
+    var l = f.lineas[it.codigo];
+    var cant = l ? l.cantidad : 0;
+    var unidad = it.tipo === 'promo' ? '' : L.unidadParaMostrar(1, it.unidad);
+    var precio = it.precio !== null ? pesos(it.precio) + (unidad ? ' / ' + unidad : '') : 'precio a mano';
+    return '<div class="prod' + (cant ? ' con' : '') + '" data-prod="' + esc(it.codigo) + '" data-buscar="' + esc(L.normalizarTexto(it.nombre + ' ' + it.codigo + ' ' + it.categoria)) + '">' +
+      '<button class="prod-info" data-a="mas" data-codigo="' + esc(it.codigo) + '"><b>' + esc(it.nombre) + '</b>' +
+      (it.revisar ? '<span class="chip aviso">a revisar</span>' : '') + '<small>' + esc(precio) + '</small></button>' +
+      '<div class="cant"><button class="redondo" data-a="menos" data-codigo="' + esc(it.codigo) + '" aria-label="Menos">−</button>' +
+      '<span class="cant-num" data-q="' + esc(it.codigo) + '">' + esc(L.formatearCantidad(cant)) + '</span>' +
+      '<button class="redondo" data-a="mas" data-codigo="' + esc(it.codigo) + '" aria-label="Más">+</button></div></div>';
+  }
+
+  function htmlSelector(f) {
+    var grupos = gruposProductos();
+    if (!grupos.length) return '<div class="aviso rojo">No hay productos activos en PRECIOS ni promos en PROMOS VIGENTES.</div>';
+    return '<input class="campo" data-campo="filtro" placeholder="Buscar producto…" autocomplete="off" value="' + esc(f.filtro) + '">' +
+      '<div id="lista-productos">' + grupos.map(function (g) {
+        return '<div class="grupo"><h3>' + esc(g.nombre) + '</h3>' + g.items.map(function (it) { return filaProducto(it, f); }).join('') + '</div>';
+      }).join('') + '</div>';
+  }
+
+  function htmlResumen(f) {
+    var calc = calculoForm(f);
+    if (!calc.lineas.length) return '<h2>Pedido</h2><p class="ayuda">Todavía no agregaste productos.</p>';
+    var html = '<h2>Pedido</h2>';
+    if (calc.mayorista) html += '<div class="aviso">🥚 ' + esc(L.formatearCantidad(calc.maples)) + ' maples: es mayorista, poné vos el precio por maple.</div>';
+    calc.lineas.forEach(function (l) {
+      var manual = f.lineas[l.codigo] ? f.lineas[l.codigo].precioManual : null;
+      html += '<div class="linea"><div class="linea-nombre"><b>' + esc(L.formatearCantidad(l.cantidad)) + '</b> × ' + esc(l.descripcion) + '</div>' +
+        '<div class="linea-precio"><input class="campo chico' + (l.requierePrecio ? ' falta' : '') + '" data-precio="' + esc(l.codigo) + '" inputmode="decimal" autocomplete="off" ' +
+        'placeholder="' + esc(l.precioSugerido !== null ? pesos(l.precioSugerido) : 'precio c/u') + '" value="' + esc(manual !== null && manual !== undefined ? manual : '') + '">' +
+        '<b data-total-linea="' + esc(l.codigo) + '">' + esc(pesos(l.total)) + '</b>' +
+        '<button class="quitar" data-a="quitar" data-codigo="' + esc(l.codigo) + '" aria-label="Quitar">×</button></div></div>';
+    });
+    var esVenta = f.modo === 'ruta';
+    html += '<div class="totales">' +
+      '<div class="fila-total"><span>Total sugerido</span><b id="total-sugerido">' + esc(pesos(calc.totalSugerido)) + '</b></div>' +
+      (esVenta ? '' : '<label>Envío<input class="campo" data-campo="envio" inputmode="decimal" autocomplete="off" placeholder="$ 0" value="' + esc(f.envio) + '"></label>') +
+      '<label>Total cobrado' + (esVenta ? '' : ' (sin envío)') + '<input class="campo grande" data-campo="totalCobrado" inputmode="decimal" autocomplete="off" value="' + esc(f.totalEditado ? f.totalCobrado : pesos(calc.totalSugerido)) + '"></label>' +
+      '<button class="link" data-a="usarSugerido" id="usar-sugerido" style="display:' + (f.totalEditado ? 'inline-block' : 'none') + '">Volver al total sugerido</button>' +
+      '<div class="a-cobrar"><span>A cobrar</span><b id="a-cobrar">' + esc(pesos(aCobrarForm(f, calc))) + '</b></div></div>';
+    return html;
+  }
+
+  function textoFecha(f) {
+    var c = cfg();
+    if (!f.fechaEntrega) return '<div class="aviso">Sin fecha: el pedido va a quedar en PENDIENTES.</div>';
+    var t = esc(L.formatearFechaLarga(f.fechaEntrega));
+    if (!L.esDiaDeReparto(f.fechaEntrega, c.diasSinReparto)) t += ' <span class="chip rojo">ese día no se reparte</span>';
+    if (f.modo !== 'editar' && f.fechaEntrega === hoy() && E.datos.hojasImpresas.indexOf(hoy()) >= 0) t += ' · <b>va a la 2da vuelta</b> (la hoja ya se imprimió)';
+    return t;
+  }
+
+  function htmlEntrega(f) {
+    var c = cfg();
+    var h = hoy();
+    var proximo = L.siguienteDiaDeReparto(h, c.diasSinReparto);
+    return '<h2>Entrega</h2><div class="chips">' +
+      '<button class="chip-btn' + (f.fechaEntrega === h ? ' activo' : '') + '" data-a="fecha" data-v="' + h + '">Hoy</button>' +
+      '<button class="chip-btn' + (f.fechaEntrega === proximo ? ' activo' : '') + '" data-a="fecha" data-v="' + proximo + '">' +
+        (proximo === L.sumarDias(h, 1) ? 'Mañana' : esc(L.formatearFechaCorta(proximo))) + '</button></div>' +
+      '<input type="date" class="campo" data-campo="fechaEntrega" value="' + esc(f.fechaEntrega) + '">' +
+      '<div id="aviso-fecha" class="ayuda">' + textoFecha(f) + '</div>' +
+      '<label>Horario<input class="campo" data-campo="horario" autocomplete="off" autocapitalize="sentences" placeholder="ej: después de las 17" value="' + esc(f.horario) + '"></label>' +
+      '<div style="margin-top:12px;font-size:15px;color:var(--gris)">¿De dónde vino?</div><div class="chips">' +
+      c.origenes.map(function (o) {
+        return '<button class="chip-btn' + (f.origen === o ? ' activo' : '') + '" data-a="origen" data-v="' + esc(o) + '">' + esc(o) + '</button>';
+      }).join('') + '</div>' +
+      '<label>Notas<textarea class="campo" data-campo="notas" rows="2" autocapitalize="sentences" placeholder="ej: tocar timbre 2">' + esc(f.notas) + '</textarea></label>';
+  }
+
+  function vistaNuevo() {
+    var f = formActual();
+    return '<h1>' + (f.modo === 'editar' ? 'Editar pedido' : 'Nuevo pedido') + '</h1>' +
+      '<section class="bloque" id="bloque-cliente">' + htmlCliente(f) + '</section>' +
+      '<section class="bloque"><h2>Productos</h2>' + htmlSelector(f) + '</section>' +
+      '<section class="bloque" id="bloque-resumen">' + htmlResumen(f) + '</section>' +
+      '<section class="bloque" id="bloque-entrega">' + htmlEntrega(f) + '</section>' +
+      '<div class="pie-form"><button class="btn primario grande" data-a="guardarPedido">💾 ' + (f.modo === 'editar' ? 'Guardar cambios' : 'Guardar pedido') + '</button>' +
+      (f.modo === 'editar' ? '<button class="btn" data-a="cancelarEdicion">Volver sin guardar</button>' : '') + '</div>';
+  }
+
+  function pintarBloque(id, html) { var el = $(id); if (el) el.innerHTML = html; }
+
+  function pintarTotales(f) {
+    var calc = calculoForm(f);
+    var el = $('total-sugerido');
+    if (!el) return;
+    el.textContent = pesos(calc.totalSugerido);
+    calc.lineas.forEach(function (l) {
+      var t = porDato('data-total-linea', l.codigo);
+      if (t) t.textContent = pesos(l.total);
+      var inp = porDato('data-precio', l.codigo);
+      if (inp) inp.classList.toggle('falta', l.requierePrecio);
+    });
+    var tot = porDato('data-campo', 'totalCobrado');
+    if (tot && !f.totalEditado && document.activeElement !== tot) tot.value = pesos(calc.totalSugerido);
+    $('a-cobrar').textContent = pesos(aCobrarForm(f, calc));
+    $('usar-sugerido').style.display = f.totalEditado ? 'inline-block' : 'none';
+  }
+
+  function pintarAvisoTelefono() {
+    var el = $('aviso-tel');
+    if (!el) return;
+    var f = formActual();
+    var t = String(f.telefono || '').trim();
+    if (!t) { el.innerHTML = ''; return; }
+    var n = L.normalizarTelefono(t, cfg().caracteristica);
+    if (!n) { el.innerHTML = '<span style="color:var(--rojo)">⚠️ Número incompleto: poné el código de área (ej. 11) y los 8 números.</span>'; return; }
+    var repetido = clientePorTel(n);
+    el.innerHTML = '✓ ' + esc(telLindo(n)) + (repetido && f.etapaCliente === 'campos' && f.modo !== 'editar'
+      ? ' — <b>ya es cliente:</b> ' + esc(repetido.nombre || 'Sin nombre') + ' <button class="link" data-a="elegirCliente" data-tel="' + esc(n) + '">usar ese</button>' : '');
+  }
+
+  function pintarAvisoBarrio() {
+    var el = $('aviso-barrio');
+    if (!el) return;
+    var f = formActual();
+    var b = barrioForm(f);
+    if (!b) { el.innerHTML = ''; return; }
+    var z = L.clasificarZona(b, E.datos.zonas);
+    if (z.estado === 'no') el.innerHTML = '<div class="aviso rojo">🚫 A ' + esc(z.barrio) + ' no llegamos.</div>';
+    else if (z.estado === 'consultar') el.innerHTML = '<div class="aviso">⚠️ ' + esc(z.barrio) + ': hay que consultar si llegamos.</div>';
+    else if (z.estado === '') el.innerHTML = '<div class="aviso">Ese barrio no está en ZONAS: fijate si llegamos.</div>';
+    else el.innerHTML = '';
+  }
+
+  function cambiarCantidad(f, codigo, signo) {
+    var it = cat().porCodigo[codigo];
+    var paso = it ? it.paso : 1;
+    var l = f.lineas[codigo] || { cantidad: 0, precioManual: null };
+    var nueva = Math.max(0, Number((l.cantidad + signo * paso).toFixed(3)));
+    if (!nueva) {
+      delete f.lineas[codigo];
+      f.ordenLineas = f.ordenLineas.filter(function (c) { return c !== codigo; });
+    } else {
+      l.cantidad = nueva;
+      f.lineas[codigo] = l;
+      if (f.ordenLineas.indexOf(codigo) < 0) f.ordenLineas.push(codigo);
+    }
+    var span = porDato('data-q', codigo);
+    if (span) span.textContent = L.formatearCantidad(nueva);
+    var fila = porDato('data-prod', codigo);
+    if (fila) fila.classList.toggle('con', nueva > 0);
+    pintarBloque('bloque-resumen', htmlResumen(f));
+  }
+
+  function filtrarProductos(texto) {
+    var q = L.normalizarTexto(texto);
+    var filas = document.querySelectorAll('[data-prod]');
+    for (var i = 0; i < filas.length; i++) {
+      filas[i].style.display = !q || filas[i].getAttribute('data-buscar').indexOf(q) >= 0 ? '' : 'none';
+    }
+    var grupos = document.querySelectorAll('.grupo');
+    for (var k = 0; k < grupos.length; k++) {
+      var visibles = grupos[k].querySelectorAll('[data-prod]:not([style*="none"])').length;
+      grupos[k].style.display = visibles ? '' : 'none';
+    }
+  }
+
+  function elegirCliente(tel) {
+    var f = formActual();
+    var c = clientePorTel(tel);
+    if (!c) return;
+    if (f.modo === 'ruta') {
+      f.clienteTel = tel; f.nombre = c.nombre || ''; f.telefono = telLindo(tel); f.direccion = c.direccion || '';
+      f.busqueda = ''; f.etapaCliente = 'campos';
+      pintarBloque('bloque-cliente', htmlClienteRuta(f));
+      pintarAvisoTelefono();
+      return;
+    }
+    f.clienteTel = tel;
+    f.etapaCliente = 'existente';
+    f.nombre = c.nombre || '';
+    f.telefono = tel;
+    f.mismaDireccion = !!c.direccion;
+    f.guardarDireccion = true;
+    f.direccion = ''; f.entreCalles = ''; f.barrio = ''; f.barrioOtro = ''; f.referencia = '';
+    pintarBloque('bloque-cliente', htmlCliente(f));
+    pintarAvisoBarrio();
+  }
+
+  function repetirUltimo() {
+    var f = formActual();
+    var u = E.datos.ultimos[f.clienteTel];
+    if (!u) return;
+    f.lineas = {};
+    f.ordenLineas = [];
+    var omitidos = [];
+    u.lineas.forEach(function (l) {
+      var it = cat().porCodigo[l.codigo];
+      if (!it || !it.activo) { omitidos.push(l.descripcion || l.codigo); return; }
+      f.lineas[l.codigo] = { cantidad: l.cantidad, precioManual: null, ultimoPrecio: l.precioUnitario };
+      f.ordenLineas.push(l.codigo);
+    });
+    // Lo que hoy no tiene precio sugerido (vacío o mayorista) arranca con el precio de la vez pasada.
+    calculoForm(f).lineas.forEach(function (l) {
+      var x = f.lineas[l.codigo];
+      if (l.requierePrecio && x.ultimoPrecio !== null && x.ultimoPrecio !== undefined) x.precioManual = x.ultimoPrecio;
+    });
+    f.totalEditado = false;
+    render();
+    toast('Cargué el pedido del ' + L.formatearFechaCorta(u.fecha) + '. Revisá cantidades y precios.' + (omitidos.length ? ' No están más: ' + omitidos.join(', ') + '.' : ''));
+  }
+
+  function datosClienteForm(f) {
+    if (f.etapaCliente === 'existente') {
+      var c = clientePorTel(f.clienteTel) || {};
+      var base = { nombre: c.nombre || String(f.nombre || '').trim(), telefono: c.telefono };
+      if (f.mismaDireccion && c.direccion) {
+        base.direccion = c.direccion; base.entreCalles = c.entreCalles; base.barrio = c.barrio; base.referencia = c.referencia;
+        base.guardarDireccion = false;
+      } else {
+        base.direccion = f.direccion; base.entreCalles = f.entreCalles; base.barrio = barrioForm(f); base.referencia = f.referencia;
+        base.guardarDireccion = !c.direccion || f.guardarDireccion;
+      }
+      return base;
+    }
+    return {
+      nombre: String(f.nombre || '').trim(), telefono: f.telefono, direccion: f.direccion, entreCalles: f.entreCalles,
+      barrio: barrioForm(f), referencia: f.referencia, guardarDireccion: true
+    };
+  }
+
+  function mostrarErrores(errores) {
+    abrirPanel('<h2>Falta completar</h2>' + errores.map(function (e) { return '<div class="aviso rojo">' + esc(e) + '</div>'; }).join('') +
+      '<button class="btn primario" data-a="cerrarPanel">Corregir</button>');
+  }
+
+  function guardarFormPedido(forzar) {
+    var f = E.form;
+    var c = cfg();
+    var calc = calculoForm(f);
+    var cli = datosClienteForm(f);
+    var tel = L.normalizarTelefono(cli.telefono, c.caracteristica);
+    var errores = [];
+    if (!cli.nombre) errores.push('Falta el nombre del cliente.');
+    if (String(cli.telefono || '').trim() && !tel) errores.push('El teléfono está incompleto: poné el código de área (ej. 11) y los 8 números.');
+    if (!String(cli.telefono || '').trim() && f.modo !== 'editar') errores.push('Falta el teléfono (sin teléfono no le podés volver a escribir).');
+    if (!calc.lineas.length) errores.push('No agregaste productos.');
+    calc.lineas.forEach(function (l) { if (l.requierePrecio) errores.push('Falta el precio de ' + l.descripcion + '.'); });
+    var total = totalCobradoForm(f, calc);
+    if (total === null) errores.push('No entiendo el total cobrado: escribilo de nuevo.');
+    if (String(f.envio || '').trim() && L.parsearPesos(f.envio) === null) errores.push('No entiendo el envío: escribilo de nuevo.');
+    if (errores.length) { mostrarErrores(errores); return; }
+
+    var avisos = [];
+    if (!L.direccionCompleta(cli.direccion)) avisos.push('Falta calle y altura: el pedido va a quedar en PENDIENTES.');
+    var zona = L.clasificarZona(cli.barrio, E.datos.zonas);
+    if (zona.estado === 'no') avisos.push('A ' + zona.barrio + ' no llegamos.');
+    if (zona.estado === 'consultar') avisos.push(zona.barrio + ': hay que consultar si llegamos.');
+    if (!f.fechaEntrega) avisos.push('No tiene fecha de entrega: va a quedar en PENDIENTES.');
+    if (!tel && f.modo === 'editar') avisos.push('Queda sin teléfono: no le vas a poder escribir.');
+    if (avisos.length && !forzar) {
+      abrirPanel('<h2>Antes de guardar</h2>' + avisos.map(function (a) { return '<div class="aviso">' + esc(a) + '</div>'; }).join('') +
+        '<div class="pila"><button class="btn primario" data-a="guardarIgual">Guardar igual</button><button class="btn" data-a="cerrarPanel">Corregir</button></div>');
+      return;
+    }
+    cerrarPanel();
+    var datos = {
+      id: f.id || L.nuevoId('P', hoy(), aleatorio()),
+      fechaEntrega: f.fechaEntrega,
+      telefono: tel,
+      cliente: cli.nombre,
+      direccion: cli.direccion || '', entreCalles: cli.entreCalles || '', barrio: cli.barrio || '', referencia: cli.referencia || '',
+      horario: f.horario,
+      lineas: f.ordenLineas.map(function (codigo) {
+        var l = f.lineas[codigo];
+        return { codigo: codigo, cantidad: l.cantidad, precioUnitario: l.precioManual, descripcion: l.descripcion || '' };
+      }),
+      totalCobrado: total,
+      envio: L.parsearPesos(f.envio) || 0,
+      origen: f.origen,
+      notas: f.notas,
+      guardarDireccion: cli.guardarDireccion
+    };
+    var p = accion('guardarPedido', [datos]);
+    if (f.modo === 'editar') {
+      var volver = f.volverA || 'hoy';
+      terminarEdicion();
+      toast('Cambios guardados ✓');
+      irA(volver);
+      return;
+    }
+    E.form = formVacio();
+    render();
+    window.scrollTo(0, 0);
+    panelPedidoGuardado(p);
+  }
+
+  function panelPedidoGuardado(p) {
+    var c = cfg();
+    var link = linkWa(p, c.mensajeConfirmacion);
+    var vuelta = L.normalizarVuelta(p.vuelta);
+    abrirPanel('<h2>✅ Pedido guardado</h2>' +
+      '<p><b>' + esc(p.cliente) + '</b> · ' + esc(pesos(L.aCobrar(p))) + '<br>' +
+      esc(p.fechaEntrega ? L.formatearFechaLarga(p.fechaEntrega) : 'sin fecha') +
+      (p.fechaEntrega === hoy() ? ' · ' + esc(L.nombreVuelta(vuelta)) : '') + '</p>' +
+      '<div class="pila">' +
+      (link && c.mensajeConfirmacion ? '<a class="btn wa" target="_blank" href="' + esc(link) + '" data-a="cerrarPanel">📲 Mandar confirmación por WhatsApp</a>' : '') +
+      '<button class="btn primario" data-a="cerrarPanel">➕ Cargar otro</button>' +
+      '<button class="btn" data-a="irCerrando" data-v="hoy">🚚 Ver HOY</button></div>');
+  }
+
+  function abrirEdicion(id) {
+    var p = pedidoPorId(id);
+    if (!p) return;
+    if (E.form && E.form.modo === 'nuevo') E.formNuevoGuardado = E.form;
+    var f = formVacio();
+    var conocido = E.datos.zonas.some(function (z) { return L.normalizarTexto(z.barrio) === L.normalizarTexto(p.barrio); });
+    f.modo = 'editar';
+    f.id = p.id;
+    f.volverA = E.pestana === 'nuevo' ? 'hoy' : E.pestana;
+    f.etapaCliente = 'campos';
+    f.nombre = p.cliente === 'Sin nombre' ? '' : p.cliente;
+    f.telefono = p.telefono ? telLindo(p.telefono) : '';
+    f.direccion = p.direccion; f.entreCalles = p.entreCalles; f.referencia = p.referencia;
+    f.barrio = conocido || !p.barrio ? p.barrio : '__otro';
+    f.barrioOtro = conocido ? '' : p.barrio;
+    (p.lineas || []).forEach(function (l) {
+      f.lineas[l.codigo] = { cantidad: l.cantidad, precioManual: l.precioUnitario, descripcion: l.descripcion };
+      f.ordenLineas.push(l.codigo);
+    });
+    f.totalCobrado = pesos(p.totalCobrado);
+    f.totalEditado = true;
+    f.envio = p.envio ? String(p.envio) : '';
+    f.fechaEntrega = p.fechaEntrega;
+    f.horario = p.horario; f.origen = p.origen; f.notas = p.notas;
+    E.form = f;
+    E.pestana = 'nuevo';
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  function terminarEdicion() {
+    E.form = E.formNuevoGuardado || null;
+    E.formNuevoGuardado = null;
+  }
+
+  // ───────────────────────────── VENTA EN RUTA ─────────────────────────────
+
+  function htmlClienteRuta(f) {
+    return '<h2>Cliente</h2>' +
+      '<input class="campo" data-campo="busqueda" placeholder="Buscar cliente (opcional)" autocomplete="off" autocapitalize="words" value="' + esc(f.busqueda) + '">' +
+      '<div id="resultados">' + htmlResultados(f) + '</div>' +
+      camposNombreTel(f, true) +
+      '<label>Calle y altura (opcional)<input class="campo" data-campo="direccion" autocomplete="off" autocapitalize="words" value="' + esc(f.direccion) + '"></label>';
+  }
+
+  function vistaRuta() {
+    var f = formActual();
+    var h = hoy();
+    var ventas = E.datos.pedidos.filter(function (p) {
+      return p.fechaEntrega === h && L.normalizarVuelta(p.vuelta) === L.VUELTAS.EN_RUTA && L.normalizarEstado(p.estado) !== L.ESTADOS.CANCELADO;
+    });
+    var medios = cfg().mediosPago;
+    return '<h1>Venta en ruta</h1><p class="ayuda">Para lo que vendés en el momento con la mercadería de más.</p>' +
+      '<section class="bloque" id="bloque-cliente">' + htmlClienteRuta(f) + '</section>' +
+      '<section class="bloque"><h2>¿Qué llevó?</h2>' + htmlSelector(f) + '</section>' +
+      '<section class="bloque" id="bloque-resumen">' + htmlResumen(f) + '</section>' +
+      '<section class="bloque" id="bloque-pago"><h2>¿Cómo pagó?</h2><div class="chips">' +
+        medios.map(function (m) {
+          return '<button class="chip-btn' + (f.medio === m ? ' activo' : '') + '" data-a="medioVenta" data-v="' + esc(m) + '">' + iconoMedio(m) + ' ' + esc(m) + '</button>';
+        }).join('') +
+        '<button class="chip-btn' + (f.medio === '' ? ' activo' : '') + '" data-a="medioVenta" data-v="">🕒 Todavía no pagó</button></div>' +
+        '<label>Notas<input class="campo" data-campo="notas" autocomplete="off" autocapitalize="sentences" value="' + esc(f.notas) + '"></label></section>' +
+      '<div class="pie-form"><button class="btn primario grande" data-a="guardarVenta">💾 Guardar venta</button></div>' +
+      (ventas.length ? '<section class="bloque" style="margin-top:14px"><h2>Ventas en ruta de hoy</h2>' + ventas.map(function (p) {
+        return '<div class="gasto"><div><b>' + esc(p.cliente) + '</b><div class="ayuda">' + esc(p.detalle) + '</div></div><b>' + esc(pesos(L.aCobrar(p))) + '</b></div>';
+      }).join('') + '</section>' : '');
+  }
+
+  function guardarVenta(forzar) {
+    var f = E.venta;
+    var c = cfg();
+    var calc = calculoForm(f);
+    var tel = L.normalizarTelefono(f.telefono, c.caracteristica);
+    var errores = [];
+    if (!calc.lineas.length) errores.push('No agregaste qué llevó.');
+    calc.lineas.forEach(function (l) { if (l.requierePrecio) errores.push('Falta el precio de ' + l.descripcion + '.'); });
+    var total = totalCobradoForm(f, calc);
+    if (total === null) errores.push('No entiendo cuánto cobraste: escribilo de nuevo.');
+    if (String(f.telefono || '').trim() && !tel) errores.push('El teléfono está incompleto (o borralo si no lo tenés).');
+    if (f.medio === null) errores.push('Elegí cómo pagó.');
+    if (errores.length) { mostrarErrores(errores); return; }
+    if (!tel && !forzar) {
+      abrirPanel('<h2>¿Sin teléfono?</h2><div class="aviso">Sin teléfono no vas a poder volver a escribirle.</div>' +
+        '<div class="pila"><button class="btn primario" data-a="cerrarPanel">Agregar teléfono</button><button class="btn" data-a="guardarVentaIgual">Guardar igual</button></div>');
+      return;
+    }
+    cerrarPanel();
+    var datos = {
+      id: L.nuevoId('P', hoy(), aleatorio()),
+      enRuta: true,
+      fechaEntrega: hoy(),
+      telefono: tel,
+      cliente: String(f.nombre || '').trim() || 'Sin nombre',
+      direccion: String(f.direccion || '').trim(),
+      lineas: f.ordenLineas.map(function (codigo) {
+        return { codigo: codigo, cantidad: f.lineas[codigo].cantidad, precioUnitario: f.lineas[codigo].precioManual };
+      }),
+      totalCobrado: total,
+      envio: 0,
+      origen: c.origenEnRuta,
+      notas: f.notas,
+      estado: L.ESTADOS.ENTREGADO,
+      medio: f.medio || '',
+      guardarDireccion: !!String(f.direccion || '').trim()
+    };
+    accion('guardarPedido', [datos]);
+    E.venta = ventaVacia();
+    render();
+    window.scrollTo(0, 0);
+    toast('Venta guardada ✓ (' + pesos(total) + ')');
+  }
+
+  // ───────────────────────────── PENDIENTES ─────────────────────────────
+
+  function vistaPendientes() {
+    var h = hoy();
+    var c = cfg();
+    var proximo = L.siguienteDiaDeReparto(h, c.diasSinReparto);
+    var lista = E.datos.pedidos.filter(function (p) { return L.motivoPendiente(p, h); }).sort(function (a, b) {
+      return String(a.fechaEntrega || '0').localeCompare(String(b.fechaEntrega || '0')) || String(a.fechaCarga).localeCompare(String(b.fechaCarga));
+    });
+    var html = '<h1>Pendientes</h1>';
+    if (!lista.length) return html + '<div class="vacio">No hay nada pendiente 👌</div>';
+    lista.forEach(function (p) {
+      var motivo = L.motivoPendiente(p, h);
+      var id = esc(p.id);
+      var linkCharla = linkWa(p, motivo === 'No estaba' ? c.mensajeNoEstaba : '');
+      html += '<article class="tarjeta" style="border-left-color:#e0b44c"><div class="t-nombre">' + esc(p.cliente) + ' <span class="chip aviso">' + esc(motivo) + '</span></div>' +
+        '<div class="t-sub">' + esc(p.fechaEntrega ? L.formatearFechaCorta(p.fechaEntrega) : 'sin fecha') + ' · ' + esc(pesos(L.aCobrar(p))) +
+        (p.telefono ? ' · ' + esc(telLindo(p.telefono)) : '') + '</div>' +
+        '<div class="t-lleva">' + esc(p.detalle || L.detalleLineas(p.lineas, cat())) + '</div>' +
+        (p.direccion ? '<div class="t-sub">📍 ' + esc([p.direccion, p.barrio].filter(Boolean).join(' · ')) + '</div>' : '') +
+        '<div class="fila-btn" style="margin-top:8px">' +
+          '<button class="btn plata" data-a="reprogramar" data-id="' + id + '" data-v="' + h + '">📅 Para hoy</button>' +
+          '<button class="btn plata" data-a="reprogramar" data-id="' + id + '" data-v="' + proximo + '">📅 ' + (proximo === L.sumarDias(h, 1) ? 'Mañana' : esc(L.formatearFechaCorta(proximo))) + '</button></div>' +
+        '<label>Otra fecha<input type="date" class="campo" data-reprogramar="' + id + '" value=""></label>' +
+        '<div class="fila-btn" style="margin-top:8px">' +
+          '<button class="btn" data-a="editar" data-id="' + id + '">✏️ ' + (motivo === 'Falta la dirección' ? 'Completar' : 'Editar') + '</button>' +
+          (linkCharla ? '<a class="btn wa" target="_blank" href="' + esc(linkCharla) + '">💬 Escribirle</a>' : '<button class="btn" disabled>Sin teléfono</button>') +
+        '</div>' +
+        '<button class="link" data-a="cancelar" data-id="' + id + '" style="margin-top:6px">Cancelar este pedido</button></article>';
+    });
+    return html;
+  }
+
+  function reprogramar(id, fecha) {
+    if (!fecha) return;
+    accion('actualizarPedido', [id, { fechaEntrega: fecha }]);
+    render();
+    toast('Reprogramado para ' + L.fechaRelativa(fecha, hoy()) + ' ✓');
+  }
+
+  // ───────────────────────────── CIERRE ─────────────────────────────
+
+  function calcularCierre() {
+    var c = cfg();
+    return L.cierreDelDia({
+      fecha: E.cierreFecha || hoy(),
+      pedidos: E.datos.pedidos,
+      gastos: E.datos.gastos,
+      retiroReal: String(E.retiro || '').trim() === '' ? null : E.retiro,
+      porcentajeAgustin: c.porcentajeAgustin,
+      medios: c.mediosPago,
+      catalogo: cat(),
+      ordenCategorias: c.ordenCategorias
+    });
+  }
+
+  function htmlResumenCierre(r) {
+    var pct = Math.round((r.porcentajeAgustin || 0) * 100);
+    var html = '';
+    if (r.sinEstadoFinal.length) {
+      html += '<div class="aviso rojo">⚠️ Quedan ' + r.sinEstadoFinal.length + ' pedido(s) sin marcar: ' +
+        esc(r.sinEstadoFinal.map(function (p) { return p.cliente; }).join(', ')) + '. <button class="link" data-a="ir" data-v="hoy">Ir a HOY</button></div>';
+    }
+    if (r.costosFaltantes) html += '<div class="aviso">Hay pedidos con costos faltantes: la ganancia real es menor (mirá AVISOS).</div>';
+    html += '<div class="cifras">' +
+      '<div><span>Ventas (' + r.entregados + ')</span><b>' + esc(pesos(r.ventas)) + '</b></div>' +
+      '<div><span>Ganancia neta</span><b>' + esc(pesos(r.gananciaNeta)) + '</b></div>' +
+      '<div><span>Agustín ' + pct + '%</span><b>' + esc(pesos(r.agustin)) + '</b></div>' +
+      '<div><span>Local ' + (100 - pct) + '%</span><b>' + esc(pesos(r.local)) + '</b></div></div>';
+    html += '<table class="tabla">' +
+      '<tr><td>Costo</td><td>' + esc(pesos(r.costo)) + '</td></tr>' +
+      '<tr><td>Ganancia bruta</td><td>' + esc(pesos(r.gananciaBruta)) + '</td></tr>' +
+      '<tr><td>Margen</td><td>' + esc(L.formatearPorcentaje(r.margen)) + '</td></tr>' +
+      '<tr><td>Gastos que afectan la ganancia</td><td>' + esc(pesos(r.gastosAfectan)) + '</td></tr>' +
+      '<tr><td>Gastos que no afectan (ej. nafta)</td><td>' + esc(pesos(r.gastosNoAfectan)) + '</td></tr></table>';
+    html += '<h3>Cobrado por medio de pago</h3><table class="tabla">' +
+      r.porMedio.map(function (m) { return '<tr><td>' + esc(m.medio) + '</td><td>' + esc(pesos(m.monto)) + '</td></tr>'; }).join('') +
+      '<tr><td>Pendiente de cobro</td><td>' + esc(pesos(r.pendienteCobro)) + '</td></tr></table>';
+    html += '<h3>Retiro</h3><table class="tabla">' +
+      '<tr><td>Calculado (Agustín − gastos que no afectan)</td><td>' + esc(pesos(r.retiroCalculado)) + '</td></tr>' +
+      '<tr><td>Real</td><td>' + (r.retiroReal === null ? '—' : esc(pesos(r.retiroReal))) + '</td></tr>' +
+      '<tr><td>Diferencia</td><td>' + (r.diferencia === null ? '—' : esc(pesos(r.diferencia))) + '</td></tr></table>';
+    html += '<details><summary>Detalle por cliente (' + r.clientes.length + ')</summary><table class="tabla">' +
+      r.clientes.map(function (c) {
+        return '<tr><td><b>' + esc(c.cliente) + '</b><div class="ayuda">' + esc(c.detalle) + '<br>' + esc(c.medio || 'pendiente de cobro') +
+          ' · costo ' + esc(pesos(c.costo)) + ' · ganancia ' + esc(pesos(c.ganancia)) + ' (' + esc(L.formatearPorcentaje(c.margen)) + ')</div></td><td>' + esc(pesos(c.cobrado)) + '</td></tr>';
+      }).join('') + '</table></details>';
+    html += '<details><summary>Unidades por categoría</summary><table class="tabla">' +
+      r.unidades.map(function (u) { return '<tr><td>' + esc(u.categoria) + '</td><td>' + esc(u.texto) + '</td></tr>'; }).join('') +
+      r.promos.map(function (p) { return '<tr><td>' + esc(p.nombre) + '</td><td>' + esc(L.formatearCantidad(p.cantidad)) + '</td></tr>'; }).join('') +
+      '</table></details>';
+    return html;
+  }
+
+  function pintarResumenCierre() {
+    var el = $('cierre-resumen');
+    if (el) el.innerHTML = htmlResumenCierre(calcularCierre());
+  }
+
+  function vistaCierre() {
+    var fecha = E.cierreFecha || hoy();
+    var r = calcularCierre();
+    var cerrado = E.datos.cierres.filter(function (x) { return x.fecha === fecha; })[0];
+    var g = E.gastoNuevo;
+    return '<h1>Cierre del día</h1>' +
+      '<section class="bloque"><label>Día<input type="date" class="campo" data-cierre-fecha="1" value="' + esc(fecha) + '" min="' + esc(L.sumarDias(hoy(), -7)) + '" max="' + esc(hoy()) + '"></label>' +
+      (cerrado ? '<div class="aviso verde">Ya lo cerraste (' + esc(cerrado.cerrado) + '). Si cerrás de nuevo, se reemplaza.</div>' : '') +
+      '<div id="cierre-resumen">' + htmlResumenCierre(r) + '</div></section>' +
+      '<section class="bloque"><h2>Gastos del día</h2>' +
+      (r.gastos.length ? r.gastos.map(function (x) {
+        return '<div class="gasto"><div>' + esc(x.descripcion) + (x.noAfecta ? ' <span class="chip">no afecta</span>' : '') + '</div>' +
+          '<div><b>' + esc(pesos(x.monto)) + '</b> <button class="quitar" data-a="borrarGasto" data-id="' + esc(x.id) + '" aria-label="Borrar">×</button></div></div>';
+      }).join('') : '<p class="ayuda">Sin gastos cargados.</p>') +
+      '<label>Descripción<input class="campo" data-gasto="descripcion" autocomplete="off" autocapitalize="sentences" placeholder="ej: nafta, bolsas" value="' + esc(g.descripcion) + '"></label>' +
+      '<label>Monto<input class="campo" data-gasto="monto" inputmode="decimal" autocomplete="off" placeholder="$ 0" value="' + esc(g.monto) + '"></label>' +
+      '<label class="check"><input type="checkbox" data-gasto="noAfecta"' + (g.noAfecta ? ' checked' : '') + '> No afecta la ganancia (ej: nafta)</label>' +
+      '<button class="btn" data-a="agregarGasto">➕ Agregar gasto</button></section>' +
+      '<section class="bloque"><h2>Retiro real</h2><p class="ayuda">Lo que realmente te llevaste. La diferencia aparece arriba.</p>' +
+      '<input class="campo grande" data-retiro="1" inputmode="decimal" autocomplete="off" placeholder="$ 0" value="' + esc(E.retiro) + '"></section>' +
+      '<div class="pie-form"><button class="btn primario grande" data-a="cerrarDia"' + (E.ocupado.cierre ? ' disabled' : '') + '>🔒 ' + (E.ocupado.cierre ? 'Cerrando…' : 'Cerrar el día') + '</button></div>';
+  }
+
+  function agregarGasto() {
+    var g = E.gastoNuevo;
+    var monto = L.parsearPesos(g.monto);
+    if (monto === null || monto <= 0) { mostrarErrores(['Escribí el monto del gasto.']); return; }
+    var fecha = E.cierreFecha || hoy();
+    accion('guardarGasto', [{ id: L.nuevoId('G', fecha, aleatorio()), fecha: fecha, descripcion: String(g.descripcion || '').trim() || 'Gasto', monto: monto, noAfecta: !!g.noAfecta }]);
+    E.gastoNuevo = { descripcion: '', monto: '', noAfecta: false };
+    render();
+    toast('Gasto agregado ✓');
+  }
+
+  function cerrarDia(forzar) {
+    var r = calcularCierre();
+    if (r.sinEstadoFinal.length && !forzar) {
+      abrirPanel('<h2>Quedan pedidos sin marcar</h2><div class="aviso rojo">' + esc(r.sinEstadoFinal.map(function (p) { return p.cliente; }).join(', ')) + '</div>' +
+        '<p>Si cerrás igual, no cuentan como vendidos.</p><div class="pila"><button class="btn" data-a="irCerrando" data-v="hoy">Ir a marcarlos</button>' +
+        '<button class="btn peligro" data-a="cerrarDiaIgual">Cerrar igual</button></div>');
+      return;
+    }
+    cerrarPanel();
+    var fecha = E.cierreFecha || hoy();
+    E.ocupado.cierre = true;
+    render();
+    encolar('cerrarDia', [fecha, String(E.retiro || '').trim()], {
+      persistir: false,
+      alTerminar: function (res) {
+        E.ocupado.cierre = false;
+        E.datos.cierres = E.datos.cierres.filter(function (x) { return x.fecha !== res.fecha; }).concat([{ fecha: res.fecha, cerrado: res.cerrado }]);
+        if (E.pestana === 'cierre') render();
+        abrirPanel('<h2>Día cerrado ✓</h2><table class="tabla">' +
+          '<tr><td>Ventas</td><td>' + esc(pesos(res.ventas)) + '</td></tr>' +
+          '<tr><td>Ganancia neta</td><td>' + esc(pesos(res.gananciaNeta)) + '</td></tr>' +
+          '<tr><td>Agustín</td><td>' + esc(pesos(res.agustin)) + '</td></tr>' +
+          '<tr><td>Local</td><td>' + esc(pesos(res.local)) + '</td></tr>' +
+          (res.diferencia !== null ? '<tr><td>Diferencia del retiro</td><td>' + esc(pesos(res.diferencia)) + '</td></tr>' : '') +
+          '</table><p class="ayuda">El detalle quedó en la pestaña CIERRE y el resumen en HISTÓRICO.</p>' +
+          '<button class="btn primario" data-a="cerrarPanel">Listo</button>');
+      },
+      alFallar: function (msg) {
+        E.ocupado.cierre = false;
+        if (E.pestana === 'cierre') render();
+        toast('⚠️ No pude cerrar: ' + msg);
+      }
+    });
+  }
+
+  // ───────────────────────────── Avisos, cola y actualización ─────────────────────────────
+
+  function verAvisos() {
+    abrirPanel('<h2>Avisos (' + E.avisos.length + ')</h2>' + E.avisos.map(function (a) {
+      return '<div class="aviso"><b>' + esc(a.tipo) + '</b>' + (a.nombre || a.codigo ? ' · ' + esc([a.codigo, a.nombre].filter(Boolean).join(' ')) : '') + '<br>' + esc(a.detalle) + '</div>';
+    }).join('') + '<p class="ayuda">Se arreglan en la planilla (PRECIOS, COSTOS, PROMOS VIGENTES o CONFIG).</p><button class="btn primario" data-a="cerrarPanel">Cerrar</button>');
+  }
+
+  function verCola() {
+    var lista = E.cola.filter(function (o) { return o.persistir; });
+    if (!lista.length) { toast('Todo guardado en la planilla ✓'); return; }
+    var nombres = { guardarPedido: 'Pedido', actualizarPedido: 'Cambio de estado', guardarOrden: 'Orden de la ruta', guardarGasto: 'Gasto', borrarGasto: 'Borrar gasto' };
+    abrirPanel('<h2>Cambios por subir (' + lista.length + ')</h2>' + lista.map(function (o) {
+      return '<div class="aviso' + (o.trabada ? ' rojo' : '') + '"><b>' + esc(nombres[o.tipo] || o.tipo) + '</b>' +
+        (o.ultimoError ? '<br>' + esc(o.ultimoError) : '<br>Esperando para subir…') + '</div>';
+    }).join('') +
+      '<div class="pila"><button class="btn primario" data-a="reintentar">Reintentar ahora</button>' +
+      (lista.some(function (o) { return o.trabada; }) ? '<button class="btn peligro" data-a="descartarTrabadas">Descartar los que fallan</button>' : '') +
+      '<button class="btn" data-a="cerrarPanel">Cerrar</button></div>');
+  }
+
+  function refrescar(silencioso) {
+    if (E.refrescando) return;
+    E.refrescando = true;
+    pintarEstadoGuardado();
+    google.script.run
+      .withSuccessHandler(function (d) {
+        E.refrescando = false;
+        E.datos = prepararDatos(d);
+        reaplicarCola();
+        pintarMarca();
+        if (!silencioso || (E.pestana !== 'nuevo' && E.pestana !== 'ruta' && E.pestana !== 'cierre')) render();
+        pintarEstadoGuardado();
+        if (!silencioso) toast('Datos actualizados ✓');
+      })
+      .withFailureHandler(function (err) {
+        E.refrescando = false;
+        pintarEstadoGuardado();
+        if (!silencioso) toast('⚠️ No pude actualizar: ' + mensajeError(err));
+      })
+      .obtenerDatos();
+  }
+
+  function pedirAvisos() {
+    google.script.run
+      .withSuccessHandler(function (lista) { E.avisos = lista || []; pintarBadgeAvisos(); })
+      .withFailureHandler(function () { /* los avisos no son urgentes */ })
+      .actualizarAvisos();
+  }
+
+  // ───────────────────────────── Eventos ─────────────────────────────
+
+  var ACCIONES = {
+    ir: function (el) { cerrarPanel(); irA(el.getAttribute('data-v')); },
+    irCerrando: function (el) { cerrarPanel(); irA(el.getAttribute('data-v')); },
+    cerrarPanel: function () { cerrarPanel(); },
+    refrescar: function () { refrescar(false); },
+    verAvisos: verAvisos,
+    verCola: verCola,
+    reintentar: function () {
+      E.cola.forEach(function (o) { o.trabada = false; o.intentos = 0; });
+      E.esperaHasta = 0;
+      cerrarPanel();
+      procesarCola();
+    },
+    descartarTrabadas: function () {
+      E.cola = E.cola.filter(function (o) { return !o.trabada; });
+      guardarCola();
+      cerrarPanel();
+      refrescar(false);
+    },
+    // HOY
+    ordenar: function () { panelVuelta('¿Qué querés ordenar?', 'ordenarVuelta'); },
+    ordenarVuelta: function (el) { ordenarRuta(el.getAttribute('data-v')); },
+    rutaMaps: function () {
+      var links = linksRutaHoy();
+      if (!links.length) { toast('No hay pedidos pendientes con dirección completa.'); return; }
+      if (links.length === 1) { window.open(links[0].url, '_blank'); return; }
+      abrirPanel('<h2>Ruta en Google Maps</h2><p class="ayuda">Son muchas paradas para un solo link: abrilos en orden.</p><div class="pila">' +
+        links.map(function (l, i) { return '<a class="btn primario" target="_blank" href="' + esc(l.url) + '">Parte ' + (i + 1) + ': paradas ' + l.desde + ' a ' + l.hasta + '</a>'; }).join('') +
+        '<button class="btn" data-a="cerrarPanel">Cerrar</button></div>');
+    },
+    hoja: function () { panelVuelta('¿Qué hoja querés?', 'hojaVuelta'); },
+    hojaVuelta: function (el) { generarHoja(el.getAttribute('data-v')); },
+    avisar: function (el) {
+      E.avisados[el.getAttribute('data-id')] = ahora().hora;
+      setTimeout(render, 300);
+    },
+    entregado: function (el) { cambiarEstado(el.getAttribute('data-id'), { estado: L.ESTADOS.ENTREGADO }, 'Entregado ✓ (falta cobrar)'); },
+    cobrado: function (el) {
+      var medio = el.getAttribute('data-medio');
+      cambiarEstado(el.getAttribute('data-id'), { medio: medio }, 'Cobrado ' + medio + ' ✓');
+    },
+    noEstaba: function (el) {
+      var id = el.getAttribute('data-id');
+      setTimeout(function () { cambiarEstado(id, { estado: L.ESTADOS.NO_ESTABA }, 'Quedó en PENDIENTES para reprogramar'); }, 200);
+    },
+    deshacer: function (el) {
+      accion('actualizarPedido', [el.getAttribute('data-id'), { estado: L.ESTADOS.CONFIRMADO }]);
+      render();
+      toast('Volvió a “por entregar”');
+    },
+    subir: function (el) { moverPedido(el.getAttribute('data-id'), -1); },
+    bajar: function (el) { moverPedido(el.getAttribute('data-id'), 1); },
+    editar: function (el) { abrirEdicion(el.getAttribute('data-id')); },
+    cancelar: function (el) {
+      var p = pedidoPorId(el.getAttribute('data-id'));
+      abrirPanel('<h2>¿Cancelar el pedido?</h2><p>' + esc(p.cliente) + ' · ' + esc(pesos(L.aCobrar(p))) + '</p><div class="pila">' +
+        '<button class="btn peligro" data-a="confirmarCancelar" data-id="' + esc(p.id) + '">Sí, cancelar</button>' +
+        '<button class="btn" data-a="cerrarPanel">No</button></div>');
+    },
+    confirmarCancelar: function (el) {
+      cerrarPanel();
+      cambiarEstado(el.getAttribute('data-id'), { estado: L.ESTADOS.CANCELADO }, 'Pedido cancelado');
+    },
+    monto: function (el) {
+      var p = pedidoPorId(el.getAttribute('data-id'));
+      abrirPanel('<h2>Cambiar monto</h2><p>' + esc(p.cliente) + '</p><label>Total cobrado' + (p.envio ? ' (sin el envío de ' + esc(pesos(p.envio)) + ')' : '') +
+        '<input class="campo grande" id="nuevo-monto" inputmode="decimal" autocomplete="off" value="' + esc(pesos(p.totalCobrado)) + '"></label>' +
+        '<div class="pila" style="margin-top:12px"><button class="btn primario" data-a="guardarMonto" data-id="' + esc(p.id) + '">Guardar</button>' +
+        '<button class="btn" data-a="cerrarPanel">Cancelar</button></div>');
+      setTimeout(function () { var i = $('nuevo-monto'); if (i) { i.focus(); i.select(); } }, 50);
+    },
+    guardarMonto: function (el) {
+      var n = L.parsearPesos($('nuevo-monto').value);
+      if (n === null) { toast('No entiendo ese monto'); return; }
+      cerrarPanel();
+      accion('actualizarPedido', [el.getAttribute('data-id'), { totalCobrado: n }]);
+      render();
+      toast('Monto actualizado ✓');
+    },
+    verResueltos: function () { E.verResueltos = !E.verResueltos; render(); },
+    // NUEVO / EN RUTA
+    clienteNuevo: function () {
+      var f = formActual();
+      var q = String(f.busqueda || '').trim();
+      f.etapaCliente = 'campos';
+      if (q.replace(/\D/g, '').length >= 8) f.telefono = q; else if (q) f.nombre = q;
+      f.busqueda = '';
+      pintarBloque('bloque-cliente', htmlCliente(f));
+      pintarAvisoTelefono();
+    },
+    cambiarCliente: function () {
+      var f = formActual();
+      f.etapaCliente = 'buscar'; f.clienteTel = ''; f.nombre = ''; f.telefono = '';
+      f.direccion = ''; f.entreCalles = ''; f.barrio = ''; f.barrioOtro = ''; f.referencia = '';
+      pintarBloque('bloque-cliente', htmlCliente(f));
+    },
+    elegirCliente: function (el) { elegirCliente(el.getAttribute('data-tel')); },
+    repetir: repetirUltimo,
+    mismaDir: function (el) {
+      var f = formActual();
+      f.mismaDireccion = el.getAttribute('data-v') === 'si';
+      pintarBloque('bloque-cliente', htmlCliente(f));
+      pintarAvisoBarrio();
+    },
+    mas: function (el) { cambiarCantidad(formActual(), el.getAttribute('data-codigo'), 1); },
+    menos: function (el) { cambiarCantidad(formActual(), el.getAttribute('data-codigo'), -1); },
+    quitar: function (el) {
+      var f = formActual();
+      var codigo = el.getAttribute('data-codigo');
+      delete f.lineas[codigo];
+      f.ordenLineas = f.ordenLineas.filter(function (c) { return c !== codigo; });
+      var span = porDato('data-q', codigo);
+      if (span) span.textContent = '0';
+      var fila = porDato('data-prod', codigo);
+      if (fila) fila.classList.remove('con');
+      pintarBloque('bloque-resumen', htmlResumen(f));
+    },
+    usarSugerido: function () {
+      var f = formActual();
+      f.totalEditado = false;
+      f.totalCobrado = '';
+      pintarBloque('bloque-resumen', htmlResumen(f));
+    },
+    fecha: function (el) {
+      var f = formActual();
+      f.fechaEntrega = el.getAttribute('data-v');
+      pintarBloque('bloque-entrega', htmlEntrega(f));
+    },
+    origen: function (el) {
+      var f = formActual();
+      var v = el.getAttribute('data-v');
+      f.origen = f.origen === v ? '' : v;
+      pintarBloque('bloque-entrega', htmlEntrega(f));
+    },
+    guardarPedido: function () { guardarFormPedido(false); },
+    guardarIgual: function () { guardarFormPedido(true); },
+    cancelarEdicion: function () {
+      var volver = (E.form && E.form.volverA) || 'hoy';
+      terminarEdicion();
+      irA(volver);
+    },
+    medioVenta: function (el) {
+      var f = formActual();
+      f.medio = el.getAttribute('data-v');
+      var botones = document.querySelectorAll('[data-a="medioVenta"]');
+      for (var i = 0; i < botones.length; i++) botones[i].classList.toggle('activo', botones[i].getAttribute('data-v') === f.medio);
+    },
+    guardarVenta: function () { guardarVenta(false); },
+    guardarVentaIgual: function () { guardarVenta(true); },
+    // PENDIENTES
+    reprogramar: function (el) { reprogramar(el.getAttribute('data-id'), el.getAttribute('data-v')); },
+    // CIERRE
+    agregarGasto: agregarGasto,
+    borrarGasto: function (el) {
+      accion('borrarGasto', [el.getAttribute('data-id')]);
+      render();
+      toast('Gasto borrado');
+    },
+    cerrarDia: function () { cerrarDia(false); },
+    cerrarDiaIgual: function () { cerrarDia(true); }
+  };
+
+  document.addEventListener('click', function (ev) {
+    var el = ev.target.closest ? ev.target.closest('[data-a]') : null;
+    if (!el || el.disabled) return;
+    var fn = ACCIONES[el.getAttribute('data-a')];
+    if (!fn) return;
+    if (el.tagName !== 'A') ev.preventDefault();
+    fn(el, ev);
+  });
+
+  function alEscribir(el) {
+    var campo = el.getAttribute('data-campo');
+    var f = formActual();
+    f[campo] = el.value;
+    if (campo === 'busqueda') { var r = $('resultados'); if (r) r.innerHTML = htmlResultados(f); }
+    else if (campo === 'filtro') filtrarProductos(el.value);
+    else if (campo === 'telefono') pintarAvisoTelefono();
+    else if (campo === 'barrio') {
+      var otro = porDato('data-campo', 'barrioOtro');
+      if (otro) otro.style.display = el.value === '__otro' ? 'block' : 'none';
+      if (el.value !== '__otro') f.barrioOtro = '';
+      pintarAvisoBarrio();
+    } else if (campo === 'barrioOtro') pintarAvisoBarrio();
+    else if (campo === 'totalCobrado') { f.totalEditado = true; pintarTotales(f); }
+    else if (campo === 'envio') pintarTotales(f);
+    else if (campo === 'fechaEntrega') {
+      var aviso = $('aviso-fecha');
+      if (aviso) aviso.innerHTML = textoFecha(f);
+      var chips = document.querySelectorAll('[data-a="fecha"]');
+      for (var i = 0; i < chips.length; i++) chips[i].classList.toggle('activo', chips[i].getAttribute('data-v') === el.value);
+    }
+  }
+
+  document.addEventListener('input', function (ev) {
+    var el = ev.target;
+    if (el.hasAttribute('data-campo')) alEscribir(el);
+    else if (el.hasAttribute('data-precio')) {
+      var f = formActual();
+      var codigo = el.getAttribute('data-precio');
+      if (f.lineas[codigo]) f.lineas[codigo].precioManual = String(el.value).trim() === '' ? null : L.parsearPesos(el.value);
+      pintarTotales(f);
+    } else if (el.hasAttribute('data-gasto') && el.type !== 'checkbox') {
+      E.gastoNuevo[el.getAttribute('data-gasto')] = el.value;
+    } else if (el.hasAttribute('data-retiro')) {
+      E.retiro = el.value;
+      pintarResumenCierre();
+    }
+  });
+
+  document.addEventListener('change', function (ev) {
+    var el = ev.target;
+    if (el.hasAttribute('data-campo') && el.tagName === 'SELECT') alEscribir(el);
+    else if (el.hasAttribute('data-campo-check')) formActual()[el.getAttribute('data-campo-check')] = el.checked;
+    else if (el.hasAttribute('data-gasto') && el.type === 'checkbox') E.gastoNuevo.noAfecta = el.checked;
+    else if (el.hasAttribute('data-reprogramar')) reprogramar(el.getAttribute('data-reprogramar'), el.value);
+    else if (el.hasAttribute('data-cierre-fecha')) { E.cierreFecha = el.value || hoy(); render(); }
+  });
+
+  $('panel').addEventListener('click', function (ev) { if (ev.target.id === 'panel') cerrarPanel(); });
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { E.ocultoDesde = Date.now(); return; }
+    if (E.datos && E.ocultoDesde && Date.now() - E.ocultoDesde > 3 * 60 * 1000) refrescar(true);
+    pintarMarca();
+    procesarCola();
+  });
+
+  window.addEventListener('online', function () {
+    E.cola.forEach(function (o) { o.trabada = false; o.intentos = 0; });
+    E.esperaHasta = 0;
+    procesarCola();
+  });
+
+  // ───────────────────────────── Arranque ─────────────────────────────
+
+  function mostrarErrorInicial(msg) {
+    $('pantalla').innerHTML = '<div class="bloque"><h2>No pude cargar los datos</h2><div class="aviso rojo">' + esc(msg || 'Error desconocido') + '</div>' +
+      '<p class="ayuda">Si es la primera vez, abrí la planilla y corré Avícola → Instalar.</p>' +
+      '<button class="btn primario" data-a="refrescar">Reintentar</button></div>';
+  }
+
+  function iniciar() {
+    E.cola = (leerLocal(CLAVE_COLA) || []).filter(function (o) { return o && o.persistir && o.tipo; });
+    var pestana = leerLocal(CLAVE_PESTANA);
+    if (pestana && ['hoy', 'nuevo', 'ruta', 'pendientes', 'cierre'].indexOf(pestana) >= 0) E.pestana = pestana;
+    if (ERROR_INICIAL || !DATOS_INICIALES) {
+      mostrarErrorInicial(ERROR_INICIAL);
+      return;
+    }
+    E.datos = prepararDatos(DATOS_INICIALES);
+    reaplicarCola();
+    pintarMarca();
+    render();
+    pintarEstadoGuardado();
+    procesarCola();
+    pedirAvisos();
+  }
+
+  iniciar();
+})();
+</script>
+</body>
+</html>
