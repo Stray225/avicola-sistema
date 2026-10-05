@@ -132,13 +132,48 @@ Rango.prototype.setNumberFormats = function (formatos) {
 Rango.prototype.getNumberFormat = function () { return this.hoja.formato(this.fila, this.col); };
 Rango.prototype.clearContent = function () {
   var h = this.hoja;
-  this.recorrer(function (f, c) { h.escribir(f, c, ''); });
+  this.recorrer(function (f, c) { h.escribir(f, c, ''); delete h.links[f + ',' + c]; });
   return this;
 };
 Rango.prototype.setDataValidation = function (regla) {
   var h = this.hoja;
   this.recorrer(function (f, c) { h.validaciones[f + ',' + c] = regla; });
   return this;
+};
+Rango.prototype.clearDataValidations = function () {
+  var h = this.hoja;
+  this.recorrer(function (f, c) { delete h.validaciones[f + ',' + c]; });
+  return this;
+};
+Rango.prototype.getSheet = function () { return this.hoja; };
+Rango.prototype.getRow = function () { return this.fila; };
+Rango.prototype.getColumn = function () { return this.col; };
+Rango.prototype.getNumRows = function () { return this.nf; };
+Rango.prototype.getNumColumns = function () { return this.nc; };
+/** Como Sheets: el texto de la celda pasa a ser el del texto enriquecido y el link queda guardado aparte. */
+Rango.prototype.setRichTextValues = function (valores) {
+  this.medidas_(valores, 'rich text values');
+  var h = this.hoja;
+  this.recorrer(function (f, c, r, k) {
+    var rt = valores[r][k];
+    if (!rt || typeof rt.getText !== 'function') throw new Error('setRichTextValues necesita RichTextValue.');
+    h.escribir(f, c, rt.getText());
+    h.links[f + ',' + c] = rt.getLinkUrl();
+  });
+  return this;
+};
+Rango.prototype.getRichTextValues = function () {
+  var h = this.hoja;
+  var salida = [];
+  for (var r = 0; r < this.nf; r++) {
+    var fila = [];
+    for (var c = 0; c < this.nc; c++) {
+      var k = (this.fila + r) + ',' + (this.col + c);
+      fila.push({ texto: String(h.leer(this.fila + r, this.col + c)), link: h.links[k] || null });
+    }
+    salida.push(fila);
+  }
+  return salida;
 };
 ['setFontWeight', 'setBackground', 'setFontColor', 'setWrap', 'setHorizontalAlignment', 'setFontSize'].forEach(function (m) {
   Rango.prototype[m] = function () { return this; };
@@ -152,7 +187,9 @@ function Hoja(planilla, nombre) {
   this.maxFilas = 1000;
   this.maxCols = 26;
   this.congeladas = 0;
+  this.columnasCongeladas = 0;
   this.validaciones = {};
+  this.links = {};
 }
 Hoja.prototype.getName = function () { return this.nombre; };
 Hoja.prototype.leer = function (f, c) { var x = this.celdas[f - 1]; return x && x[c - 1] !== undefined ? x[c - 1] : ''; };
@@ -205,6 +242,7 @@ Hoja.prototype.insertRowsAfter = function (despues, n) {
   for (var i = 0; i < n; i++) { nuevasCeldas.push([]); nuevosFormatos.push(formatoArriba.slice()); }
   this.celdas.splice.apply(this.celdas, [despues, 0].concat(nuevasCeldas));
   this.formatos.splice.apply(this.formatos, [despues, 0].concat(nuevosFormatos));
+  this.correrFilas_(despues + 1, n);
   this.maxFilas += n;
   return this;
 };
@@ -212,18 +250,33 @@ Hoja.prototype.insertColumnsAfter = function (despues, n) {
   this.maxCols += n;
   return this;
 };
+/** Corre las claves "fila,columna" de links y validaciones cuando se insertan o borran filas. */
+Hoja.prototype.correrFilas_ = function (desde, delta) {
+  var self = this;
+  ['links', 'validaciones'].forEach(function (mapa) {
+    var nuevo = {};
+    Object.keys(self[mapa]).forEach(function (k) {
+      var p = k.split(',').map(Number);
+      if (delta < 0 && p[0] >= desde && p[0] < desde - delta) return;
+      nuevo[(p[0] >= desde ? p[0] + delta : p[0]) + ',' + p[1]] = self[mapa][k];
+    });
+    self[mapa] = nuevo;
+  });
+};
 Hoja.prototype.deleteRows = function (desde, n) {
   if (desde < 1 || desde + n - 1 > this.maxFilas) throw new Error('Those rows are out of bounds.');
   if (n >= this.maxFilas) throw new Error('You can\'t delete all the rows on the sheet.');
   this.celdas.splice(desde - 1, n);
   this.formatos.splice(desde - 1, n);
+  this.correrFilas_(desde, -n);
   this.maxFilas -= n;
   return this;
 };
 Hoja.prototype.deleteRow = function (fila) { return this.deleteRows(fila, 1); };
 Hoja.prototype.setFrozenRows = function (n) { this.congeladas = n; return this; };
+Hoja.prototype.setFrozenColumns = function (n) { this.columnasCongeladas = n; return this; };
 Hoja.prototype.setColumnWidth = function () { return this; };
-Hoja.prototype.clear = function () { this.celdas = []; this.formatos = []; return this; };
+Hoja.prototype.clear = function () { this.celdas = []; this.formatos = []; this.links = {}; this.validaciones = {}; return this; };
 /** Para los tests: toda la hoja como matriz (sin filas vacías del final). */
 Hoja.prototype.matriz = function () {
   var filas = this.getLastRow();
@@ -271,7 +324,7 @@ function crearEntorno(opciones) {
   var propiedades = {};
   var cache = {};
   var carpetas = [];
-  var registro = { alertas: [], dialogos: [], menu: [], toasts: [], geocodificadas: [], paradas: [] };
+  var registro = { alertas: [], dialogos: [], menu: [], toasts: [], geocodificadas: [], paradas: [], activadores: [] };
   var ahora = opciones.ahora || null;
 
   var maps = {
@@ -371,10 +424,21 @@ function crearEntorno(opciones) {
       },
       flush: function () {},
       getUi: function () { return ui; },
+      newRichTextValue: function () {
+        var texto = '';
+        var link = null;
+        var b = {
+          setText: function (t) { texto = String(t); return b; },
+          setLinkUrl: function (u) { link = u; return b; },
+          build: function () { return { getText: function () { return texto; }, getLinkUrl: function () { return link; } }; }
+        };
+        return b;
+      },
       newDataValidation: function () {
-        var regla = { lista: null };
+        var regla = { lista: null, casilla: false };
         var b = {
           requireValueInList: function (l) { regla.lista = l; return b; },
+          requireCheckbox: function () { regla.casilla = true; return b; },
           setAllowInvalid: function () { return b; },
           build: function () { return regla; }
         };
@@ -422,7 +486,29 @@ function crearEntorno(opciones) {
       getScriptLock: function () { return { waitLock: function () {}, tryLock: function () { return true; }, releaseLock: function () {} }; }
     },
     Maps: maps,
-    ScriptApp: { getService: function () { return { getUrl: function () { return opciones.urlWebApp || ''; } }; } },
+    ScriptApp: {
+      getService: function () { return { getUrl: function () { return opciones.urlWebApp || ''; } }; },
+      getProjectTriggers: function () { return registro.activadores.slice(); },
+      deleteTrigger: function (t) { registro.activadores = registro.activadores.filter(function (x) { return x !== t; }); },
+      newTrigger: function (funcion) {
+        var datos = { funcion: funcion, cadaDias: null, hora: null, zona: null };
+        var tiempo = {
+          everyDays: function (n) { datos.cadaDias = n; return tiempo; },
+          atHour: function (h) {
+            if (h < 0 || h > 23 || Math.floor(h) !== h) throw new Error('La hora tiene que ser un entero de 0 a 23.');
+            datos.hora = h;
+            return tiempo;
+          },
+          inTimezone: function (z) { datos.zona = z; return tiempo; },
+          create: function () {
+            var t = { datos: datos, getHandlerFunction: function () { return funcion; } };
+            registro.activadores.push(t);
+            return t;
+          }
+        };
+        return { timeBased: function () { return tiempo; } };
+      }
+    },
     Session: { getScriptTimeZone: function () { return opciones.zonaScript || TZ; } }
   };
 
@@ -445,7 +531,8 @@ function crearEntorno(opciones) {
     vm.runInContext('(function(){ var Real = Date; var fijo = ' + ahora.getTime() + ';' +
       'function D(a,b,c,d,e,f,g){ if (!(this instanceof D)) return new Real(fijo).toString();' +
       ' if (arguments.length === 0) return new Real(fijo); return new (Function.prototype.bind.apply(Real, [null].concat([].slice.call(arguments))))(); }' +
-      'D.prototype = Real.prototype; D.now = function(){ return fijo; }; D.UTC = Real.UTC; D.parse = Real.parse; Date = D; })();', contexto);
+      'D.prototype = Real.prototype; D.now = function(){ return fijo; }; D.UTC = Real.UTC; D.parse = Real.parse; Date = D;' +
+      ' this.__moverReloj = function (t) { fijo = t; }; })();', contexto);
   }
   ['Logica.gs', 'Codigo.gs'].forEach(function (archivo) {
     var codigo = fs.readFileSync(path.join(RAIZ, 'apps-script', archivo), 'utf8');
@@ -458,6 +545,8 @@ function crearEntorno(opciones) {
     registro: registro,
     propiedades: propiedades,
     carpetas: carpetas,
+    /** Mueve el reloj fijo (solo si se creó con "ahora"). */
+    moverReloj: function (fecha) { contexto.__moverReloj(fecha.getTime()); },
     /** Agrega otra planilla para openById (importaciones). */
     otraPlanilla: function (id, nombre) {
       var p = new Planilla(nombre || 'otra', id);

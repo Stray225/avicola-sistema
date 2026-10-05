@@ -55,11 +55,34 @@ function crearLogica_() {
     mensajeNoEstaba: 'Mensaje: no estaba',
     mensajeConfirmacion: 'Mensaje: pedido confirmado',
     idClientesImportar: 'ID planilla de clientes a importar',
-    idVentasImportar: 'ID planilla de ventas a importar'
+    idVentasImportar: 'ID planilla de ventas a importar',
+    // Recompra
+    origenRecompra: 'Origen de los pedidos de recompra',
+    cicloPorDefecto: 'Recompra: ciclo por defecto (días)',
+    diasSinRepetir: 'Recompra: días sin volver a escribirle',
+    diasParaMedir: 'Recompra: días para ver si volvió a comprar',
+    topeMensajes: 'Recompra: tope de mensajes por día',
+    nombresDireccion: 'Recompra: nombres que en realidad son direcciones',
+    horaRecalculo: 'Hora del recálculo automático (RECOMPRA y TABLERO)',
+    mensajeRecompraGeneral: 'Mensaje recompra: general',
+    mensajeRecompraAntes: 'Mensaje recompra: cliente de antes',
+    // Gastos y tablero
+    palabrasPublicidad: 'Palabras de publicidad en GASTOS',
+    origenesAnuncio: 'Orígenes que son anuncios',
+    semanasTablero: 'Tablero: semanas',
+    semanasDetalle: 'Tablero: semanas del detalle',
+    diasActivo: 'Tablero: días para cliente activo',
+    diasPerdido: 'Tablero: días para cliente perdido'
   };
+  // Las filas de CONFIG que empiezan así son mensajes de recompra para una promo o una categoría.
+  var PREFIJO_MENSAJE_RECOMPRA = 'Mensaje recompra:';
   // Si falta alguna de estas, la app lo avisa arriba.
   var CONFIG_OBLIGATORIA = ['direccionLocal', 'porcentajeAgustin', 'margenMinimo', 'mediosPago',
-    'horaCorte', 'umbralMayorista', 'mensajeAvisoVoy', 'mensajeNoEstaba'];
+    'horaCorte', 'umbralMayorista', 'mensajeAvisoVoy', 'mensajeNoEstaba',
+    'cicloPorDefecto', 'diasSinRepetir', 'diasParaMedir', 'topeMensajes', 'mensajeRecompraGeneral'];
+
+  var TIPOS_RECOMPRA = { RECOMPRA: 'recompra', ANTES: 'cliente de antes' };
+  var RESULTADOS = { VOLVIO: 'Volvió a comprar', SIN_RESPUESTA: 'Sin respuesta', ESPERANDO: 'Esperando' };
 
   // ───────────────────────────── Texto ─────────────────────────────
 
@@ -189,6 +212,12 @@ function crearLogica_() {
   function parsearCantidad(valor) {
     var n = parsearMonto(valor);
     return n === null || n < 0 ? null : Number(n.toFixed(3));
+  }
+
+  /** Número entero para plazos y topes de CONFIG ("14", "14 días") o null si está vacío. */
+  function entero_(valor) {
+    var n = parsearCantidad(typeof valor === 'number' ? valor : texto(valor).replace(/[^\d.,]/g, ''));
+    return n === null ? null : Math.floor(n);
   }
 
   /** "70%" / 0.7 / "70" / "0,7" → 0.7 */
@@ -322,7 +351,37 @@ function crearLogica_() {
       var k = claveCodigo(clave);
       return Object.prototype.hasOwnProperty.call(d, k) ? texto(d[k]) : todo;
     });
-    return salida.replace(/[ \t]+([!?,.])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
+    // "¡Hola {nombre}!" sin nombre queda "¡Hola!" (y "¡Hola, {nombre}!" también).
+    return salida.replace(/[ \t]+([!?,.])/g, '$1').replace(/,([!?.])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
+  }
+
+  /** "+5491155550001" → "+54 9 11 5555-0001" (así se puede pegar en otro teléfono). */
+  function formatearTelefonoInternacional(tel, caracteristica) {
+    var t = texto(tel);
+    return telefonoValido(t) ? '+54 9 ' + formatearTelefono(t, caracteristica) : t;
+  }
+
+  /** Lo que copia el botón "Copiar": el número en una línea y el mensaje abajo. */
+  function textoParaCopiar(telefono, mensaje, caracteristica) {
+    return [formatearTelefonoInternacional(telefono, caracteristica), texto(mensaje)].filter(Boolean).join('\n');
+  }
+
+  /**
+   * ¿El "nombre" es en realidad una dirección? A varios clientes importados se les cargó la calle
+   * en lugar del nombre: "Calle 14 1234", "Av. Mitre", "Entre 13 y 14". También si tiene números.
+   * palabras: las de CONFIG ("calle, av, avenida, entre"); se compara la primera palabra entera.
+   */
+  function pareceDireccion(nombre, palabras) {
+    var t = normalizarTexto(nombre);
+    if (!t) return false;
+    if (/\d/.test(t)) return true;
+    var primera = t.split(/[^a-z]+/).filter(Boolean)[0] || '';
+    return (palabras || []).some(function (p) { return primera && normalizarTexto(p) === primera; });
+  }
+
+  /** Nombre para el saludo: "" si el nombre parece una dirección (el mensaje saluda sin nombre). */
+  function nombreParaSaludo(nombre, palabras) {
+    return pareceDireccion(nombre, palabras) ? '' : primerNombre(nombre);
   }
 
   /**
@@ -373,6 +432,27 @@ function crearLogica_() {
   function diaDeSemana(iso) {
     var p = partesISO_(iso);
     return p ? new Date(Date.UTC(p.anio, p.mes - 1, p.dia)).getUTCDay() : -1;
+  }
+
+  /** Días de calendario de "desde" a "hasta" (negativo si "hasta" es antes). null si falta alguna. */
+  function diasEntre(desde, hasta) {
+    var a = partesISO_(desde);
+    var b = partesISO_(hasta);
+    if (!a || !b) return null;
+    return Math.round((Date.UTC(b.anio, b.mes - 1, b.dia) - Date.UTC(a.anio, a.mes - 1, a.dia)) / 86400000);
+  }
+
+  /** Lunes de la semana (de lunes a domingo) en la que cae la fecha. */
+  function lunesDe(iso) {
+    var d = diaDeSemana(iso);
+    if (d < 0) return '';
+    return sumarDias(iso, d === 0 ? -6 : 1 - d);
+  }
+
+  /** "2026-10-05 10:30:00" (o "2026-10-05") → "2026-10-05"; "" si no es una fecha. */
+  function fechaDeSello(sello) {
+    var t = texto(sello).slice(0, 10);
+    return esFechaISO(t) ? t : '';
   }
 
   /** Se reparte de lunes a sábado, salvo los días cargados como "sin reparto". */
@@ -519,8 +599,33 @@ function crearLogica_() {
       mensajeNoEstaba: texto(v('mensajeNoEstaba')),
       mensajeConfirmacion: texto(v('mensajeConfirmacion')),
       idClientesImportar: texto(v('idClientesImportar')),
-      idVentasImportar: texto(v('idVentasImportar'))
+      idVentasImportar: texto(v('idVentasImportar')),
+      origenRecompra: texto(v('origenRecompra')),
+      cicloPorDefecto: entero_(v('cicloPorDefecto')),
+      diasSinRepetir: entero_(v('diasSinRepetir')),
+      diasParaMedir: entero_(v('diasParaMedir')),
+      topeMensajes: entero_(v('topeMensajes')),
+      nombresDireccion: parsearLista(v('nombresDireccion')),
+      horaRecalculo: texto(v('horaRecalculo')),
+      mensajeRecompraGeneral: texto(v('mensajeRecompraGeneral')),
+      mensajeRecompraAntes: texto(v('mensajeRecompraAntes')),
+      palabrasPublicidad: parsearLista(v('palabrasPublicidad')),
+      origenesAnuncio: parsearLista(v('origenesAnuncio')),
+      semanasTablero: entero_(v('semanasTablero')),
+      semanasDetalle: entero_(v('semanasDetalle')),
+      diasActivo: entero_(v('diasActivo')),
+      diasPerdido: entero_(v('diasPerdido'))
     };
+    // "Mensaje recompra: PROMO FULL", "Mensaje recompra: Huevos"… (además del general y el de clientes de antes).
+    var prefijo = normalizarTexto(PREFIJO_MENSAJE_RECOMPRA);
+    var fijos = [normalizarTexto(CLAVES_CONFIG.mensajeRecompraGeneral), normalizarTexto(CLAVES_CONFIG.mensajeRecompraAntes)];
+    cfg.mensajesRecompra = [];
+    (pares || []).forEach(function (par) {
+      var k = normalizarTexto(par && par[0]);
+      if (k.indexOf(prefijo) !== 0 || fijos.indexOf(k) >= 0 || !texto(par[1])) return;
+      var para = texto(texto(par[0]).slice(texto(par[0]).indexOf(':') + 1));
+      if (para) cfg.mensajesRecompra.push({ para: para, clave: claveCodigo(para), texto: texto(par[1]) });
+    });
     cfg.faltantes = CONFIG_OBLIGATORIA.filter(function (campo) {
       var x = cfg[campo];
       return x === null || x === '' || (Array.isArray(x) && !x.length);
@@ -1421,6 +1526,486 @@ function crearLogica_() {
     return { direccion: lineas[0] || '', barrio: barrio };
   }
 
+  // ───────────────────────────── Recompra ─────────────────────────────
+
+  function ordenCompra_(a, b) {
+    return texto(a.fechaEntrega).localeCompare(texto(b.fechaEntrega)) || texto(a.fechaCarga).localeCompare(texto(b.fechaCarga));
+  }
+
+  /** Las compras de verdad: pedidos entregados con fecha, de la más vieja a la más nueva. */
+  function comprasEntregadas(pedidos) {
+    return (pedidos || []).filter(function (p) {
+      return normalizarEstado(p.estado) === ESTADOS.ENTREGADO && esFechaISO(p.fechaEntrega);
+    }).sort(ordenCompra_);
+  }
+
+  /** Un pedido que todavía no terminó (por entregar o "no estaba" sin reprogramar). */
+  function pedidoEnCurso(p) {
+    var e = normalizarEstado(p.estado);
+    return e === '' || e === ESTADOS.CONFIRMADO || e === ESTADOS.NO_ESTABA;
+  }
+
+  /**
+   * Qué mensaje de recompra le toca según su último pedido: primero uno de CONFIG para esa promo
+   * (o producto), después uno para su categoría y si no, el general. Devuelve la clave del mensaje.
+   */
+  function elegirPlantillaRecompra(lineas, catalogo, cfg) {
+    var especificos = (cfg && cfg.mensajesRecompra) || [];
+    function buscar(nombre) {
+      var k = claveCodigo(nombre);
+      for (var i = 0; i < especificos.length; i++) if (k && especificos[i].clave === k) return especificos[i].clave;
+      return '';
+    }
+    // Lo que más plata movió va primero.
+    var ordenadas = (lineas || []).map(function (l) {
+      var precio = Number(l.precioUnitario) || 0;
+      return { l: l, item: itemDe_(catalogo, l.codigo), peso: precio * (Number(l.cantidad) || 0) };
+    }).sort(function (a, b) { return b.peso - a.peso; });
+    var i;
+    var k;
+    for (i = 0; i < ordenadas.length; i++) {
+      var it = ordenadas[i].item;
+      k = buscar(it ? it.codigo : ordenadas[i].l.codigo) || (it ? buscar(it.nombre) : buscar(ordenadas[i].l.descripcion));
+      if (k) return k;
+    }
+    for (i = 0; i < ordenadas.length; i++) {
+      k = ordenadas[i].item ? buscar(ordenadas[i].item.categoria) : '';
+      if (k) return k;
+    }
+    return 'general';
+  }
+
+  /** El texto del mensaje de recompra ("general", "antes" o la clave de una promo/categoría). */
+  function textoPlantillaRecompra(clave, cfg) {
+    cfg = cfg || {};
+    if (clave === 'antes') return texto(cfg.mensajeRecompraAntes) || texto(cfg.mensajeRecompraGeneral);
+    var e = (cfg.mensajesRecompra || []).filter(function (m) { return m.clave === clave; })[0];
+    return e ? e.texto : texto(cfg.mensajeRecompraGeneral);
+  }
+
+  /**
+   * Una ficha por cliente que entra en RECOMPRA: tiene teléfono válido, no está marcado "No escribir"
+   * y tiene al menos una compra entregada, o es un "cliente de antes" (está en CLIENTES pero no tiene
+   * ningún pedido cargado: se importaron de compras de agosto y septiembre).
+   * e: { clientes, pedidos (todos, con lineas), catalogo, config }
+   */
+  function fichasRecompra(e) {
+    var cfg = e.config || {};
+    var porTel = {};
+    (e.pedidos || []).forEach(function (p) {
+      var t = texto(p.telefono);
+      if (t) (porTel[t] = porTel[t] || []).push(p);
+    });
+    var vistos = {};
+    var fichas = [];
+    (e.clientes || []).forEach(function (c) {
+      var tel = texto(c.telefono);
+      if (!telefonoValido(tel) || vistos[tel]) return;
+      vistos[tel] = true;
+      if (esSi(c.noEscribir)) return;
+      var suyos = porTel[tel] || [];
+      var compras = comprasEntregadas(suyos);
+      var antes = !compras.length;
+      // Si tiene algún pedido pero ninguna compra entregada (por entregar, sin fecha o cancelado), no entra.
+      if (antes && suyos.length) return;
+      var fechas = [];
+      compras.forEach(function (p) { if (fechas.indexOf(p.fechaEntrega) < 0) fechas.push(p.fechaEntrega); });
+      var ultima = compras.length ? compras[compras.length - 1] : null;
+      var ciclo = null;
+      if (!antes) {
+        ciclo = fechas.length >= 2
+          ? Math.max(1, Math.round(diasEntre(fechas[0], fechas[fechas.length - 1]) / (fechas.length - 1)))
+          : (Number(cfg.cicloPorDefecto) || 0);
+      }
+      var total = 0;
+      compras.forEach(function (p) { total += aCobrar(p); });
+      var lineas = ultima ? (ultima.lineas || []) : [];
+      // Cuándo cargó su último pedido (aunque todavía no se haya entregado): lo que se le escribió antes ya tuvo respuesta.
+      var ultimaCarga = '';
+      suyos.forEach(function (p) {
+        var carga = texto(p.fechaCarga) || texto(p.fechaEntrega);
+        if (normalizarEstado(p.estado) !== ESTADOS.CANCELADO && carga > ultimaCarga) ultimaCarga = carga;
+      });
+      fichas.push({
+        telefono: tel,
+        nombre: texto(c.nombre),
+        barrio: texto(c.barrio) || (ultima ? texto(ultima.barrio) : ''),
+        tipo: antes ? TIPOS_RECOMPRA.ANTES : TIPOS_RECOMPRA.RECOMPRA,
+        ultimaCompra: ultima ? ultima.fechaEntrega : '',
+        ciclo: ciclo,
+        detalle: ultima ? acortar(texto(ultima.detalle) || detalleLineas(lineas, e.catalogo), 90) : '',
+        cantidadCompras: compras.length,
+        totalGastado: total,
+        enCurso: suyos.some(pedidoEnCurso),
+        ultimaCarga: ultimaCarga,
+        plantilla: antes ? 'antes' : elegirPlantillaRecompra(lineas, e.catalogo, cfg),
+        noEscribir: false
+      });
+    });
+    return fichas;
+  }
+
+  /** Puntos de prioridad → "Alta", "Media" o "Baja". */
+  function etiquetaPrioridad(puntos) {
+    return puntos >= 100 ? 'Alta' : (puntos >= 60 ? 'Media' : 'Baja');
+  }
+
+  /**
+   * Decide a quién le toca escribir hoy y en qué orden.
+   * e: { hoy, fichas, envios: [{ telefono, fecha (sello "aaaa-mm-dd hh:mm:ss") }], config }
+   *
+   * Toca escribir: pasaron al menos tantos días como su ciclo desde la última compra (los clientes
+   * de antes, siempre), no se le escribió en los últimos X días y no tiene un pedido en curso.
+   * Prioridad (puntos): cliente de antes 100; los demás 50 + 10 por compra (hasta 5) + 20 si pasó
+   * su ciclo hace poco (menos de 2 ciclos). Cada mensaje sin respuesta desde su último pedido resta 30.
+   * La lista de hoy muestra como mucho el tope de CONFIG, menos lo que ya se escribió hoy.
+   */
+  function ordenarRecompra(e) {
+    var cfg = e.config || {};
+    var hoy = e.hoy;
+    var sinRepetir = Number(cfg.diasSinRepetir) || 0;
+    var paraMedir = Number(cfg.diasParaMedir) || 0;
+    var tope = Number(cfg.topeMensajes) || 0;
+    var envPorTel = {};
+    var escritosHoy = {};
+    (e.envios || []).forEach(function (m) {
+      var dia = fechaDeSello(m.fecha);
+      var t = texto(m.telefono);
+      if (!dia || !t) return;
+      (envPorTel[t] = envPorTel[t] || []).push({ fecha: texto(m.fecha), dia: dia });
+      if (dia === hoy) escritosHoy[t] = true;
+    });
+    var filas = (e.fichas || []).filter(function (f) { return !f.noEscribir; }).map(function (f) {
+      var envs = (envPorTel[f.telefono] || []).sort(function (a, b) { return a.fecha.localeCompare(b.fecha); });
+      var ultimo = envs.length ? envs[envs.length - 1] : null;
+      var escribioHace = ultimo ? diasEntre(ultimo.dia, hoy) : null;
+      var antes = f.tipo === TIPOS_RECOMPRA.ANTES;
+      var diasDesde = f.ultimaCompra ? diasEntre(f.ultimaCompra, hoy) : null;
+      var debe = antes || (diasDesde !== null && diasDesde >= (Number(f.ciclo) || 0));
+      var bloqueado = escribioHace !== null && escribioHace < sinRepetir;
+      // Mensajes posteriores a su último pedido que ya no tuvieron respuesta.
+      var sinRespuesta = envs.filter(function (m) {
+        return m.fecha > texto(f.ultimaCarga) && sumarDias(m.dia, paraMedir) < hoy;
+      }).length;
+      var puntos = antes ? 100 : 50 + 10 * Math.min(f.cantidadCompras, 5) +
+        (diasDesde !== null && f.ciclo && diasDesde < 2 * f.ciclo ? 20 : 0);
+      puntos -= 30 * sinRespuesta;
+      var grupo;
+      var estado;
+      if (f.enCurso) { grupo = 3; estado = 'Tiene un pedido en curso'; }
+      else if (bloqueado) {
+        grupo = 1;
+        estado = escribioHace <= 0 ? 'Le escribiste hoy' : 'Le escribiste hace ' + escribioHace + (escribioHace === 1 ? ' día' : ' días');
+      } else if (!debe) {
+        grupo = 2;
+        var faltan = (Number(f.ciclo) || 0) - diasDesde;
+        estado = faltan === 1 ? 'Falta 1 día' : 'Faltan ' + faltan + ' días';
+      } else { grupo = 0; estado = 'Toca escribir'; }
+      var fila = {};
+      Object.keys(f).forEach(function (k) { fila[k] = f[k]; });
+      fila.diasDesde = diasDesde;
+      fila.debe = debe;
+      fila.toca = grupo === 0;
+      fila.grupo = grupo;
+      fila.puntos = puntos;
+      fila.prioridad = etiquetaPrioridad(puntos);
+      fila.estado = estado;
+      fila.ultimoEnvio = ultimo ? ultimo.fecha : '';
+      fila.escribioHace = escribioHace;
+      fila.sinRespuesta = sinRespuesta;
+      fila.hoy = false;
+      fila.posicion = 0;
+      return fila;
+    });
+    filas.sort(function (a, b) {
+      return a.grupo - b.grupo || b.puntos - a.puntos || b.totalGastado - a.totalGastado ||
+        (b.diasDesde || 0) - (a.diasDesde || 0) || texto(a.nombre).localeCompare(texto(b.nombre));
+    });
+    var yaEscritos = Object.keys(escritosHoy).length;
+    var cupo = Math.max(0, tope - yaEscritos);
+    var lista = [];
+    var pasanTope = 0;
+    filas.forEach(function (f) {
+      if (!f.toca) return;
+      if (lista.length < cupo) {
+        lista.push(f);
+        f.hoy = true;
+        f.posicion = lista.length;
+        f.estado = 'Escribir hoy';
+      } else {
+        pasanTope++;
+        f.estado = 'Toca, pero pasó el tope de hoy';
+      }
+    });
+    return { filas: filas, lista: lista, escritosHoy: yaEscritos, tope: tope, pasanTope: pasanTope };
+  }
+
+  /** El mensaje de recompra ya armado: {nombre}, {ultima_compra} y {dia_reparto}. */
+  function mensajeRecompra(ficha, cfg, hoy, hora) {
+    cfg = cfg || {};
+    var plantilla = textoPlantillaRecompra(ficha.plantilla, cfg);
+    if (!plantilla) return '';
+    var proximo = fechaEntregaPorDefecto(hoy, hora, cfg.horaCorte, cfg.diasSinReparto);
+    return completarMensaje(plantilla, {
+      nombre: nombreParaSaludo(ficha.nombre, cfg.nombresDireccion),
+      ultima_compra: ficha.detalle,
+      dia_reparto: fechaRelativa(proximo, hoy)
+    });
+  }
+
+  /**
+   * ¿Funcionó el mensaje? "Volvió a comprar" si ese teléfono cargó un pedido (no cancelado) después
+   * del mensaje y dentro de N días; "Sin respuesta" si pasaron los N días; si no, "Esperando".
+   * envio: { fecha (sello) }. pedidosDelTel: los pedidos de ese teléfono.
+   */
+  function resultadoMensaje(envio, pedidosDelTel, hoy, diasParaMedir) {
+    var desde = texto(envio && envio.fecha);
+    var dia = fechaDeSello(desde);
+    if (!dia) return { resultado: '', pedido: '', fechaPedido: '' };
+    var hasta = sumarDias(dia, Number(diasParaMedir) || 0);
+    var candidatos = (pedidosDelTel || []).map(function (p) {
+      return { p: p, carga: texto(p.fechaCarga) || texto(p.fechaEntrega) };
+    }).filter(function (x) {
+      var d = fechaDeSello(x.carga);
+      return d && normalizarEstado(x.p.estado) !== ESTADOS.CANCELADO && x.carga > desde && d <= hasta;
+    }).sort(function (a, b) { return a.carga.localeCompare(b.carga); });
+    if (candidatos.length) return { resultado: RESULTADOS.VOLVIO, pedido: texto(candidatos[0].p.id), fechaPedido: fechaDeSello(candidatos[0].carga) };
+    return { resultado: hoy > hasta ? RESULTADOS.SIN_RESPUESTA : RESULTADOS.ESPERANDO, pedido: '', fechaPedido: '' };
+  }
+
+  /**
+   * Las columnas "Le escribí", "Le escribí el" y "Resultado" de una fila de RECOMPRA. La casilla queda
+   * tildada mientras no se le pueda volver a escribir; después muestra cómo salió el último mensaje.
+   */
+  function columnasMensajeRecompra(fila, pedidosDelTel, hoy, cfg) {
+    cfg = cfg || {};
+    if (!fila.ultimoEnvio) return { leEscribi: false, leEscribiEl: '', resultado: '' };
+    var r = resultadoMensaje({ fecha: fila.ultimoEnvio }, pedidosDelTel, hoy, cfg.diasParaMedir);
+    var activo = fila.escribioHace !== null && fila.escribioHace < (Number(cfg.diasSinRepetir) || 0);
+    return {
+      leEscribi: activo,
+      leEscribiEl: activo ? fila.ultimoEnvio : '',
+      resultado: activo ? r.resultado : r.resultado + ' (mensaje del ' + formatearFecha(fechaDeSello(fila.ultimoEnvio)).slice(0, 5) + ')'
+    };
+  }
+
+  /** Fecha del último mensaje de recompra a ese teléfono en los últimos N días ("" si no hubo). */
+  function mensajeReciente(telefono, envios, hoy, diasParaMedir) {
+    var t = texto(telefono);
+    var n = Number(diasParaMedir) || 0;
+    var ultimo = '';
+    (envios || []).forEach(function (m) {
+      var dia = fechaDeSello(m.fecha);
+      if (!t || texto(m.telefono) !== t || !dia) return;
+      var hace = diasEntre(dia, hoy);
+      if (hace >= 0 && hace <= n && dia > ultimo) ultimo = dia;
+    });
+    return ultimo;
+  }
+
+  /** ¿La descripción de un gasto dice publicidad, anuncio o Meta (las palabras de CONFIG)? */
+  function esGastoDePublicidad(descripcion, palabras) {
+    var t = normalizarTexto(descripcion);
+    if (!t) return false;
+    return (palabras || []).some(function (p) {
+      var w = normalizarTexto(p).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return !!w && new RegExp('(^|[^a-z0-9])' + w + '(s|es)?([^a-z0-9]|$)').test(t);
+    });
+  }
+
+  /** La publicidad va solo en GASTO_META: si aparece en GASTOS, se avisa para no contarla dos veces. */
+  function avisosGastosPublicidad(gastos, palabras) {
+    return (gastos || []).filter(function (g) { return esGastoDePublicidad(g.descripcion, palabras); }).map(function (g) {
+      return {
+        tipo: 'Publicidad en GASTOS',
+        codigo: texto(g.id),
+        nombre: [texto(g.descripcion), formatearFecha(g.fecha), formatearPesos(parsearPesos(g.monto) || 0)].filter(Boolean).join(' · '),
+        detalle: 'La publicidad se carga solo en GASTO_META. Borrá este gasto de GASTOS (o cambiale la descripción si no es publicidad) para no contarla dos veces.'
+      };
+    });
+  }
+
+  // ───────────────────────────── Tablero ─────────────────────────────
+
+  /** "lun 5/10 al dom 11/10" */
+  function nombreSemana(lunes) {
+    return formatearFechaCorta(lunes) + ' al ' + formatearFechaCorta(sumarDias(lunes, 6));
+  }
+
+  function porcentaje_(parte, total) {
+    return total > 0 ? Number((parte / total).toFixed(6)) : null;
+  }
+
+  /**
+   * Números por semana (de lunes a domingo) y, de las últimas semanas, por promo, por barrio y el
+   * estado de los clientes.
+   * e: { hoy, pedidos (todos, con lineas), gastos, gastoMeta: [{ semana, monto }], envios: [{ telefono, fecha }],
+   *      clientes: [{ telefono, deAntes }], catalogo, config, semanas (opcional), sinDetalle (opcional) }
+   *
+   * Ventas y ganancia salen de los pedidos entregados, igual que el cierre. El local paga la mercadería,
+   * la nafta, la publicidad y todos los gastos: la parte de Agustín no se toca.
+   */
+  function calcularTablero(e) {
+    var cfg = e.config || {};
+    var pct = cfg.porcentajeAgustin;
+    var hoy = e.hoy;
+    var cantidad = Math.max(1, Math.floor(Number(e.semanas || cfg.semanasTablero) || 1));
+    var lunesHoy = lunesDe(hoy);
+    var semanas = [];
+    var porLunes = {};
+    for (var i = 0; i < cantidad; i++) {
+      var lunes = sumarDias(lunesHoy, -7 * i);
+      var s = {
+        lunes: lunes, domingo: sumarDias(lunes, 6), nombre: nombreSemana(lunes), enCurso: i === 0,
+        pedidos: 0, ventas: 0, costo: 0, ganancia: 0, gananciaRepite: 0, mensajes: 0, volvieron: 0,
+        meta: 0, gastosLocal: 0, compartidos: 0, _nuevos: {}, _anuncio: {}, _repite: {}
+      };
+      semanas.push(s);
+      porLunes[lunes] = s;
+    }
+    var deAntes = {};
+    (e.clientes || []).forEach(function (c) { if (esSi(c.deAntes)) deAntes[texto(c.telefono)] = true; });
+    var porTel = {};
+    (e.pedidos || []).forEach(function (p) {
+      var t = texto(p.telefono);
+      if (t) (porTel[t] = porTel[t] || []).push(p);
+    });
+    var comprasPorTel = {};
+    Object.keys(porTel).forEach(function (t) { comprasPorTel[t] = comprasEntregadas(porTel[t]); });
+    function esAnuncio(origen) {
+      var o = normalizarTexto(origen);
+      return !!o && (cfg.origenesAnuncio || []).some(function (w) { var x = normalizarTexto(w); return !!x && o.indexOf(x) >= 0; });
+    }
+    // ¿Es una compra de alguien que ya había comprado? (o un cliente de antes)
+    function repite(p) {
+      var t = texto(p.telefono);
+      return !!t && (deAntes[t] || comprasPorTel[t].indexOf(p) > 0);
+    }
+    var todas = comprasEntregadas(e.pedidos);
+    todas.forEach(function (p) {
+      var s = porLunes[lunesDe(p.fechaEntrega)];
+      if (!s) return;
+      var t = texto(p.telefono);
+      var cobrado = aCobrar(p);
+      var costo = parsearPesos(p.costo) || 0;
+      s.pedidos++;
+      s.ventas += cobrado;
+      s.costo += costo;
+      s.ganancia += cobrado - costo;
+      if (repite(p)) {
+        s._repite[t] = true;
+        s.gananciaRepite += cobrado - costo;
+      } else if (t) {
+        s._nuevos[t] = true;
+        var conOrigen = comprasPorTel[t].filter(function (x) { return texto(x.origen); })[0];
+        if (esAnuncio(texto(p.origen) || (conOrigen ? conOrigen.origen : ''))) s._anuncio[t] = true;
+      }
+    });
+    (e.gastos || []).forEach(function (g) {
+      var s = porLunes[lunesDe(texto(g.fecha))];
+      if (!s) return;
+      var monto = parsearPesos(g.monto) || 0;
+      if (normalizarQuienPaga(g.quienPaga) === QUIEN_PAGA.COMPARTIDO) s.compartidos += monto;
+      else s.gastosLocal += monto;
+    });
+    (e.gastoMeta || []).forEach(function (g) {
+      var s = porLunes[lunesDe(texto(g.semana))];
+      if (s) s.meta += parsearPesos(g.monto) || 0;
+    });
+    (e.envios || []).forEach(function (m) {
+      var dia = fechaDeSello(m.fecha);
+      var s = dia ? porLunes[lunesDe(dia)] : null;
+      if (!s) return;
+      s.mensajes++;
+      if (resultadoMensaje(m, porTel[texto(m.telefono)], hoy, cfg.diasParaMedir).resultado === RESULTADOS.VOLVIO) s.volvieron++;
+    });
+    semanas.forEach(function (s) {
+      s.nuevos = Object.keys(s._nuevos).length;
+      s.nuevosAnuncio = Object.keys(s._anuncio).length;
+      s.repitieron = Object.keys(s._repite).length;
+      delete s._nuevos;
+      delete s._anuncio;
+      delete s._repite;
+      s.margen = margen(s.ventas, s.costo);
+      s.porcentajeRepite = porcentaje_(s.gananciaRepite, s.ganancia);
+      s.porcentajeVolvio = porcentaje_(s.volvieron, s.mensajes);
+      s.costoPorNuevo = s.nuevosAnuncio ? redondear(s.meta / s.nuevosAnuncio) : null;
+      var r = repartir(s.ganancia, pct);
+      s.agustin = r.agustin;
+      s.local = r.local;
+      // Lo que paga el local: sus gastos y su parte de los que se reparten.
+      s.gastosLocal += repartir(s.compartidos, pct).local;
+      delete s.compartidos;
+      s.leQuedaLocal = s.local - s.gastosLocal - s.meta;
+    });
+    var salida = { semanas: semanas };
+    if (e.sinDetalle) return salida;
+
+    // ── Detalle de las últimas semanas ──
+    var cantDetalle = Math.max(1, Math.min(cantidad, Math.floor(Number(cfg.semanasDetalle) || cantidad)));
+    var desde = sumarDias(lunesHoy, -7 * (cantDetalle - 1));
+    var enRango = todas.filter(function (p) { return p.fechaEntrega >= desde && p.fechaEntrega <= hoy; });
+    var promos = {};
+    var barrios = {};
+    enRango.forEach(function (p) {
+      var t = texto(p.telefono);
+      var lineas = p.lineas || [];
+      var cobrado = parsearPesos(p.totalCobrado) || 0;
+      var sumaLineas = 0;
+      lineas.forEach(function (l) { sumaLineas += (Number(l.precioUnitario) || 0) * (Number(l.cantidad) || 0); });
+      lineas.forEach(function (l) {
+        var item = itemDe_(e.catalogo, l.codigo);
+        if (!item || item.tipo !== 'promo') return;
+        var cant = Number(l.cantidad) || 0;
+        // Si se cobró distinto, la diferencia se reparte entre las líneas según lo que pesa cada una.
+        var ingreso = sumaLineas > 0 ? cobrado * (Number(l.precioUnitario) || 0) * cant / sumaLineas : cobrado / lineas.length;
+        var x = promos[item.codigo] || (promos[item.codigo] = { codigo: item.codigo, nombre: item.nombre, unidades: 0, ganancia: 0, _compradores: {} });
+        x.unidades += cant;
+        x.ganancia += ingreso - (Number(l.costoUnitario) || 0) * cant;
+        if (t && x._compradores[t] === undefined) x._compradores[t] = comprasPorTel[t].indexOf(p);
+      });
+      var nombreBarrio = texto(p.barrio) || '(sin barrio)';
+      var kb = normalizarTexto(nombreBarrio);
+      var b = barrios[kb] || (barrios[kb] = { barrio: nombreBarrio, pedidos: 0, ganancia: 0 });
+      b.pedidos++;
+      b.ganancia += aCobrar(p) - (parsearPesos(p.costo) || 0);
+    });
+    salida.detalle = {
+      desde: desde,
+      hasta: sumarDias(lunesHoy, 6),
+      semanas: cantDetalle,
+      promos: Object.keys(promos).map(function (k) {
+        var x = promos[k];
+        var compradores = Object.keys(x._compradores);
+        var volvieron = compradores.filter(function (t) { return comprasPorTel[t].length - 1 > x._compradores[t]; }).length;
+        return {
+          codigo: x.codigo, nombre: x.nombre, unidades: Number(x.unidades.toFixed(3)), ganancia: redondear(x.ganancia),
+          compradores: compradores.length, volvieron: volvieron, porcentajeVolvio: porcentaje_(volvieron, compradores.length)
+        };
+      }).sort(function (a, b) { return b.ganancia - a.ganancia || a.nombre.localeCompare(b.nombre); }),
+      barrios: Object.keys(barrios).map(function (k) { return barrios[k]; })
+        .sort(function (a, b) { return b.ganancia - a.ganancia || a.barrio.localeCompare(b.barrio); })
+    };
+    // ── Clientes hoy: activos, en riesgo, perdidos ──
+    var diasActivo = Number(cfg.diasActivo) || 0;
+    var diasPerdido = Number(cfg.diasPerdido) || 0;
+    var estados = { activos: 0, enRiesgo: 0, perdidos: 0, sinCompras: 0 };
+    var vistos = {};
+    (e.clientes || []).forEach(function (c) {
+      var t = texto(c.telefono);
+      if (!telefonoValido(t) || vistos[t]) return;
+      vistos[t] = true;
+      var compras = comprasPorTel[t] || [];
+      if (!compras.length) { estados.sinCompras++; return; }
+      var dias = diasEntre(compras[compras.length - 1].fechaEntrega, hoy);
+      if (dias <= diasActivo) estados.activos++;
+      else if (dias <= diasPerdido) estados.enRiesgo++;
+      else estados.perdidos++;
+    });
+    salida.clientes = estados;
+    return salida;
+  }
+
   // ───────────────────────────── Importaciones ─────────────────────────────
 
   /** Acepta el ID suelto o el link completo de una planilla de Google. */
@@ -1577,6 +2162,9 @@ function crearLogica_() {
     QUIEN_PAGA: QUIEN_PAGA,
     LISTA_QUIEN_PAGA: LISTA_QUIEN_PAGA,
     CLAVES_CONFIG: CLAVES_CONFIG,
+    PREFIJO_MENSAJE_RECOMPRA: PREFIJO_MENSAJE_RECOMPRA,
+    TIPOS_RECOMPRA: TIPOS_RECOMPRA,
+    RESULTADOS: RESULTADOS,
     texto: texto,
     normalizarTexto: normalizarTexto,
     normalizarCodigo: normalizarCodigo,
@@ -1602,11 +2190,18 @@ function crearLogica_() {
     formatearTelefono: formatearTelefono,
     primerNombre: primerNombre,
     completarMensaje: completarMensaje,
+    formatearTelefonoInternacional: formatearTelefonoInternacional,
+    textoParaCopiar: textoParaCopiar,
+    pareceDireccion: pareceDireccion,
+    nombreParaSaludo: nombreParaSaludo,
     linkWhatsapp: linkWhatsapp,
     isoDesdePartes: isoDesdePartes,
     esFechaISO: esFechaISO,
     sumarDias: sumarDias,
     diaDeSemana: diaDeSemana,
+    diasEntre: diasEntre,
+    lunesDe: lunesDe,
+    fechaDeSello: fechaDeSello,
     esDiaDeReparto: esDiaDeReparto,
     siguienteDiaDeReparto: siguienteDiaDeReparto,
     minutosDeHora: minutosDeHora,
@@ -1653,6 +2248,21 @@ function crearLogica_() {
     buscarClientes: buscarClientes,
     clasificarZona: clasificarZona,
     separarDireccionContacto: separarDireccionContacto,
+    comprasEntregadas: comprasEntregadas,
+    pedidoEnCurso: pedidoEnCurso,
+    elegirPlantillaRecompra: elegirPlantillaRecompra,
+    textoPlantillaRecompra: textoPlantillaRecompra,
+    fichasRecompra: fichasRecompra,
+    etiquetaPrioridad: etiquetaPrioridad,
+    ordenarRecompra: ordenarRecompra,
+    mensajeRecompra: mensajeRecompra,
+    resultadoMensaje: resultadoMensaje,
+    columnasMensajeRecompra: columnasMensajeRecompra,
+    mensajeReciente: mensajeReciente,
+    esGastoDePublicidad: esGastoDePublicidad,
+    avisosGastosPublicidad: avisosGastosPublicidad,
+    nombreSemana: nombreSemana,
+    calcularTablero: calcularTablero,
     extraerIdPlanilla: extraerIdPlanilla,
     hashTexto: hashTexto,
     idImportacion: idImportacion,

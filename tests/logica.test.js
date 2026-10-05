@@ -199,7 +199,17 @@ test('CONFIG: se lee por nombre de clave y con tipos', function () {
     [C.paradasPorLink, ''],
     [C.whatsappBusiness, 'Sí'],
     [C.mensajeAvisoVoy, 'Hola {nombre}'],
-    [C.mensajeNoEstaba, 'No estabas']
+    [C.mensajeNoEstaba, 'No estabas'],
+    [C.cicloPorDefecto, '14 días'],
+    [C.diasSinRepetir, '7'],
+    [C.diasParaMedir, 7],
+    [C.topeMensajes, '15'],
+    [C.nombresDireccion, 'calle, av, entre'],
+    [C.mensajeRecompraGeneral, '¡Hola {nombre}!'],
+    ['Mensaje recompra: PROMO FULL', 'Promo {nombre}'],
+    ['mensaje recompra:  Huevos ', 'Huevos {nombre}'],
+    ['Mensaje recompra: vacío', ''],
+    [C.palabrasPublicidad, 'publicidad, anuncio, Meta']
   ], 2026);
   assert.equal(cfg.porcentajeAgustin, 0.7);
   assert.equal(cfg.porcentajeLocal, 0.3);
@@ -209,6 +219,17 @@ test('CONFIG: se lee por nombre de clave y con tipos', function () {
   assert.equal(cfg.paradasPorLink, 9);
   assert.equal(cfg.whatsappBusiness, true);
   assert.deepEqual(cfg.faltantes, []);
+  assert.equal(cfg.cicloPorDefecto, 14);
+  assert.equal(cfg.diasParaMedir, 7);
+  assert.equal(cfg.topeMensajes, 15);
+  assert.deepEqual(cfg.nombresDireccion, ['calle', 'av', 'entre']);
+  assert.deepEqual(cfg.palabrasPublicidad, ['publicidad', 'anuncio', 'Meta']);
+  // Los mensajes por promo o categoría se leen solos; el general y el de clientes de antes van aparte.
+  assert.deepEqual(cfg.mensajesRecompra, [
+    { para: 'PROMO FULL', clave: 'promofull', texto: 'Promo {nombre}' },
+    { para: 'Huevos', clave: 'huevos', texto: 'Huevos {nombre}' }
+  ]);
+  assert.equal(cfg.mensajeRecompraGeneral, '¡Hola {nombre}!');
   var vacia = L.interpretarConfig([], 2026);
   assert.ok(vacia.faltantes.indexOf(C.direccionLocal) >= 0);
   var mal = L.interpretarConfig([[C.porcentajeAgustin, '70%'], [C.porcentajeLocal, '40%']], 2026);
