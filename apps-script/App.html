@@ -62,7 +62,7 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
   nav button {
-    flex: 1; border: 0; background: none; font-family: inherit; font-size: 11.5px; letter-spacing: -.2px; color: var(--gris);
+    flex: 1; min-width: 0; border: 0; background: none; font-family: inherit; font-size: 10.5px; letter-spacing: -.3px; color: var(--gris);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px 0;
   }
   nav button span { font-size: 24px; line-height: 1; position: relative; }
@@ -88,6 +88,9 @@
   .link { background: none; border: 0; color: var(--azul); font-size: 16px; text-decoration: underline; padding: 8px 4px; font-family: inherit; }
   .fila-btn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .fila-btn.tres { grid-template-columns: 1fr 1fr 1fr; }
+  /* Botón de WhatsApp + "Copiar" (por si WhatsApp Business está en otro teléfono) */
+  .par-wa { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  .btn.copiar { width: auto; min-width: 104px; font-size: 16px; padding: 10px 12px; }
   .pila { display: grid; gap: 8px; }
 
   .bloque { background: var(--blanco); border-radius: 16px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
@@ -185,6 +188,15 @@
   .check { display: flex; align-items: center; gap: 10px; font-size: 17px; color: var(--texto); margin: 12px 0; }
   .check input { width: 26px; height: 26px; }
 
+  .numeros { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 14px; }
+  .numero { background: var(--blanco); border-radius: 16px; padding: 12px 14px; box-shadow: 0 1px 2px rgba(0,0,0,.06); min-width: 0; }
+  .numero span { display: block; font-size: 14px; color: var(--gris); }
+  .numero b { display: block; font-size: 26px; line-height: 1.15; margin: 4px 0; overflow-wrap: anywhere; }
+  .numero small { display: block; font-size: 13px; color: var(--gris); }
+  .numero .sube { color: var(--verde-medio); font-weight: 700; }
+  .numero .baja { color: var(--rojo); font-weight: 700; }
+  textarea.copia { font-size: 17px; }
+
   #panel { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 50; display: none; align-items: flex-end; justify-content: center; }
   #panel.abierto { display: flex; }
   .panel-caja { background: var(--blanco); width: 100%; max-width: 720px; border-radius: 22px 22px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 88vh; overflow-y: auto; }
@@ -215,6 +227,7 @@
   <button data-a="ir" data-v="nuevo"><span>➕</span>NUEVO</button>
   <button data-a="ir" data-v="ruta"><span>🛒</span>EN RUTA</button>
   <button data-a="ir" data-v="pendientes"><span>📌</span>PENDIENTES</button>
+  <button data-a="ir" data-v="escribir"><span>💬</span>ESCRIBIR</button>
   <button data-a="ir" data-v="cierre"><span>💰</span>CIERRE</button>
 </nav>
 
@@ -244,6 +257,7 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     cola: [],
     enviando: false,
     verResueltos: false,
+    verEscritos: false,
     form: null,
     venta: null,
     cierreFecha: '',
@@ -334,6 +348,63 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     return '📱';
   }
 
+  // ───────────────────────────── Copiar (WhatsApp en otro teléfono) ─────────────────────────────
+
+  /** Copia al portapapeles. alTerminar(true/false). */
+  function copiarTexto(texto, alTerminar) {
+    var ok = false;
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = texto;
+      ta.setAttribute('readonly', ''); // así no abre el teclado
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, texto.length);
+      ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) { ok = false; }
+    if (ok) { alTerminar(true); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(texto).then(function () { alTerminar(true); }, function () { alTerminar(false); });
+      return;
+    }
+    alTerminar(false);
+  }
+
+  /** Si el celu no deja copiar solo, se muestra el texto para copiarlo a mano. */
+  function panelCopiaManual(texto) {
+    abrirPanel('<h2>Copiá el número y el mensaje</h2><p class="ayuda">Tu celu no dejó copiar solo: mantené apretado el texto y elegí “Copiar”.</p>' +
+      '<textarea class="campo copia" id="texto-copiar" rows="7" readonly>' + esc(texto) + '</textarea>' +
+      '<button class="btn primario" data-a="cerrarPanel" style="margin-top:10px">Listo</button>');
+    setTimeout(function () { var t = $('texto-copiar'); if (t) { t.focus(); t.select(); } }, 50);
+  }
+
+  /** El botón "Copiar" que va al lado de cada botón de WhatsApp. */
+  function botonCopiar(tipo, id, tel) {
+    return '<button class="btn copiar" data-a="copiar" data-v="' + esc(tipo) + '"' + (id ? ' data-id="' + esc(id) + '"' : '') +
+      (tel ? ' data-tel="' + esc(tel) + '"' : '') + '>📋 Copiar</button>';
+  }
+
+  /** Teléfono y mensaje que copia cada botón. */
+  function datosParaCopiar(el) {
+    var c = cfg();
+    var tipo = el.getAttribute('data-v');
+    if (tipo === 'recompra') {
+      var f = fichaPorTel(el.getAttribute('data-tel'));
+      return f ? { telefono: f.telefono, mensaje: L.mensajeRecompra(f, c, hoy(), ahora().hora) } : null;
+    }
+    var p = pedidoPorId(el.getAttribute('data-id'));
+    if (!p) return null;
+    var plantillas = { voy: c.mensajeAvisoVoy, noEstaba: c.mensajeNoEstaba, confirmacion: c.mensajeConfirmacion,
+      charla: L.motivoPendiente(p, hoy()) === 'No estaba' ? c.mensajeNoEstaba : '' };
+    var plantilla = plantillas[tipo] || '';
+    return { telefono: p.telefono, mensaje: plantilla ? L.completarMensaje(plantilla, datosMensaje(p)) : '' };
+  }
+
   // ───────────────────────────── Datos ─────────────────────────────
 
   function prepararDatos(d) {
@@ -346,8 +417,19 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     d.cierres = d.cierres || [];
     d.hojasImpresas = d.hojasImpresas || [];
     d.zonas = d.zonas || [];
+    d.recompra = d.recompra || { disponible: false, fichas: [] };
+    d.envios = d.envios || [];
+    d.numeros = d.numeros || { semanas: [] };
     return d;
   }
+
+  function fichaPorTel(tel) {
+    var lista = E.datos.recompra.fichas;
+    for (var i = 0; i < lista.length; i++) if (lista[i].telefono === tel) return lista[i];
+    return null;
+  }
+
+  function mismoDia(a, b) { return L.fechaDeSello(a) === L.fechaDeSello(b); }
 
   function contexto() {
     return {
@@ -401,6 +483,19 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     },
     borrarGasto: function (id) {
       E.datos.gastos = E.datos.gastos.filter(function (x) { return x.id !== id; });
+    },
+    marcarEscrito: function (tel, sello) {
+      var ya = E.datos.envios.some(function (m) { return m.telefono === tel && mismoDia(m.fecha, sello); });
+      if (!ya) E.datos.envios.push({ telefono: tel, fecha: sello });
+    },
+    desmarcarEscrito: function (tel, sello) {
+      E.datos.envios = E.datos.envios.filter(function (m) { return !(m.telefono === tel && mismoDia(m.fecha, sello)); });
+    },
+    marcarNoEscribir: function (tel, valor) {
+      var f = fichaPorTel(tel);
+      if (f) f.noEscribir = !!valor;
+      var c = clientePorTel(tel);
+      if (c) c.noEscribir = !!valor;
     }
   };
 
@@ -542,22 +637,28 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     guardarLocal(CLAVE_PESTANA, pestana);
     render();
     window.scrollTo(0, 0);
+    if (pestana === 'numeros') pedirNumeros();
   }
 
   function render() {
     if (!E.datos) return;
     var botones = document.querySelectorAll('#nav button');
-    for (var i = 0; i < botones.length; i++) botones[i].classList.toggle('activa', botones[i].getAttribute('data-v') === E.pestana);
-    var vistas = { hoy: vistaHoy, nuevo: vistaNuevo, ruta: vistaRuta, pendientes: vistaPendientes, cierre: vistaCierre };
+    for (var i = 0; i < botones.length; i++) {
+      var v = botones[i].getAttribute('data-v');
+      botones[i].classList.toggle('activa', v === E.pestana || (E.pestana === 'numeros' && v === 'cierre'));
+    }
+    var vistas = { hoy: vistaHoy, nuevo: vistaNuevo, ruta: vistaRuta, pendientes: vistaPendientes, escribir: vistaEscribir, cierre: vistaCierre, numeros: vistaNumeros };
     $('pantalla').innerHTML = (vistas[E.pestana] || vistaHoy)();
     pintarContadorPendientes();
+    pintarContadorEscribir();
     if (E.pestana === 'nuevo' || E.pestana === 'ruta') { pintarAvisoTelefono(); pintarAvisoBarrio(); }
   }
 
   function repintarSiConviene() {
-    if (E.pestana === 'hoy' || E.pestana === 'pendientes') render();
+    if (E.pestana === 'hoy' || E.pestana === 'pendientes' || E.pestana === 'escribir') render();
     else if (E.pestana === 'cierre') pintarResumenCierre();
     pintarContadorPendientes();
+    pintarContadorEscribir();
   }
 
   function pintarMarca() {
@@ -570,6 +671,14 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     var n = E.datos.pedidos.filter(function (p) { return L.motivoPendiente(p, h); }).length;
     var b = document.querySelector('#nav [data-v="pendientes"]');
     if (b) b.innerHTML = '<span>📌' + (n ? '<i class="contador">' + n + '</i>' : '') + '</span>PENDIENTES';
+  }
+
+  /** En la pestaña ESCRIBIR: cuántos mensajes de recompra faltan mandar hoy. */
+  function pintarContadorEscribir() {
+    var r = recompraHoy();
+    var n = r ? r.lista.length : 0;
+    var b = document.querySelector('#nav [data-v="escribir"]');
+    if (b) b.innerHTML = '<span>💬' + (n ? '<i class="contador">' + n + '</i>' : '') + '</span>ESCRIBIR';
   }
 
   function pintarBadgeAvisos() {
@@ -657,8 +766,6 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       (p.horario ? '<span class="chip aviso">🕒 ' + esc(p.horario) + '</span>' : '') +
       (E.avisados[p.id] ? '<span class="chip verde">avisado ' + esc(E.avisados[p.id]) + '</span>' : '');
     var sub = [p.entreCalles ? 'e/ ' + p.entreCalles : '', p.referencia].filter(Boolean).join(' · ');
-    var medios = c.mediosPago;
-    var cobroImpar = (1 + medios.length) % 2 === 1;
     return '<article class="tarjeta' + (vuelta === L.VUELTAS.SEGUNDA ? ' segunda' : '') + '" id="p-' + id + '">' +
       '<div class="t-cab"><span class="t-num">' + (i + 1) + '</span><div class="t-nombre">' + esc(p.cliente) + ' ' + chips + '</div></div>' +
       (completa
@@ -670,13 +777,15 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       '<div class="t-total"><span>' + esc(pesos(L.aCobrar(p))) + '</span><button class="link" data-a="monto" data-id="' + id + '">cambiar monto</button></div>' +
       '<div class="t-botones">' +
         (linkVoy
-          ? '<a class="btn wa ancho" target="_blank" href="' + esc(linkVoy) + '" data-a="avisar" data-id="' + id + '">📲 Avisar que voy</a>'
+          ? '<div class="ancho par-wa"><a class="btn wa" target="_blank" href="' + esc(linkVoy) + '" data-a="avisar" data-id="' + id + '">📲 Avisar que voy</a>' +
+            botonCopiar('voy', p.id) + '</div>'
           : '<button class="btn wa ancho" disabled>📲 ' + (L.telefonoValido(p.telefono) ? 'Falta el mensaje en CONFIG' : 'Sin teléfono') + '</button>') +
         '<button class="btn ok" data-a="entregado" data-id="' + id + '">✅ Entregado</button>' +
         botonesCobro(p) +
         (linkNo
-          ? '<a class="btn no' + (cobroImpar ? '' : ' ancho') + '" target="_blank" href="' + esc(linkNo) + '" data-a="noEstaba" data-id="' + id + '">🚪 No estaba</a>'
-          : '<button class="btn no' + (cobroImpar ? '' : ' ancho') + '" data-a="noEstaba" data-id="' + id + '">🚪 No estaba</button>') +
+          ? '<div class="ancho par-wa"><a class="btn no" target="_blank" href="' + esc(linkNo) + '" data-a="noEstaba" data-id="' + id + '">🚪 No estaba</a>' +
+            botonCopiar('noEstaba', p.id) + '</div>'
+          : '<button class="btn no ancho" data-a="noEstaba" data-id="' + id + '">🚪 No estaba</button>') +
       '</div>' +
       '<div class="t-mini">' +
         '<button data-a="subir" data-id="' + id + '"' + (i === 0 ? ' disabled' : '') + ' aria-label="Subir">↑</button>' +
@@ -1016,9 +1125,11 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       '<div id="aviso-fecha" class="ayuda">' + textoFecha(f) + '</div>' +
       '<label>Horario<input class="campo" data-campo="horario" autocomplete="off" autocapitalize="sentences" placeholder="ej: después de las 17" value="' + esc(f.horario) + '"></label>' +
       '<div style="margin-top:12px;font-size:15px;color:var(--gris)">¿De dónde vino?</div><div class="chips">' +
-      c.origenes.map(function (o) {
+      c.origenes.concat(f.origen && c.origenes.indexOf(f.origen) < 0 ? [f.origen] : []).map(function (o) {
         return '<button class="chip-btn' + (f.origen === o ? ' activo' : '') + '" data-a="origen" data-v="' + esc(o) + '">' + esc(o) + '</button>';
       }).join('') + '</div>' +
+      (f.recompraEl && f.modo !== 'editar' ? '<div class="ayuda">💬 Le escribiste por recompra el ' + esc(L.formatearFechaCorta(f.recompraEl)) +
+        (c.origenRecompra && f.origen === c.origenRecompra ? ': por eso el origen sugerido es “' + esc(c.origenRecompra) + '”.' : '.') + '</div>' : '') +
       '<label>Notas<textarea class="campo" data-campo="notas" rows="2" autocapitalize="sentences" placeholder="ej: tocar timbre 2">' + esc(f.notas) + '</textarea></label>';
   }
 
@@ -1129,7 +1240,12 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     f.mismaDireccion = !!c.direccion;
     f.guardarDireccion = true;
     f.direccion = ''; f.entreCalles = ''; f.barrio = ''; f.barrioOtro = ''; f.referencia = '';
+    // Si le escribiste por recompra hace poco, el origen sugerido es "Recompra".
+    var cf = cfg();
+    f.recompraEl = L.mensajeReciente(tel, E.datos.envios, hoy(), cf.diasParaMedir);
+    if (f.recompraEl && cf.origenRecompra && !f.origen) f.origen = cf.origenRecompra;
     pintarBloque('bloque-cliente', htmlCliente(f));
+    pintarBloque('bloque-entrega', htmlEntrega(f));
     pintarAvisoBarrio();
   }
 
@@ -1250,7 +1366,8 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       esc(p.fechaEntrega ? L.formatearFechaLarga(p.fechaEntrega) : 'sin fecha') +
       (p.fechaEntrega === hoy() ? ' · ' + esc(L.nombreVuelta(vuelta)) : '') + '</p>' +
       '<div class="pila">' +
-      (link && c.mensajeConfirmacion ? '<a class="btn wa" target="_blank" href="' + esc(link) + '" data-a="cerrarPanel">📲 Mandar confirmación por WhatsApp</a>' : '') +
+      (link && c.mensajeConfirmacion ? '<div class="par-wa"><a class="btn wa" target="_blank" href="' + esc(link) + '" data-a="cerrarPanel">📲 Mandar confirmación</a>' +
+        botonCopiar('confirmacion', p.id) + '</div>' : '') +
       '<button class="btn primario" data-a="cerrarPanel">➕ Cargar otro</button>' +
       '<button class="btn" data-a="irCerrando" data-v="hoy">🚚 Ver HOY</button></div>');
   }
@@ -1391,9 +1508,9 @@ var ERROR_INICIAL = <?!= errorJson ?>;
           '<button class="btn plata" data-a="reprogramar" data-id="' + id + '" data-v="' + h + '">📅 Para hoy</button>' +
           '<button class="btn plata" data-a="reprogramar" data-id="' + id + '" data-v="' + proximo + '">📅 ' + (proximo === L.sumarDias(h, 1) ? 'Mañana' : esc(L.formatearFechaCorta(proximo))) + '</button></div>' +
         '<label>Otra fecha<input type="date" class="campo" data-reprogramar="' + id + '" value=""></label>' +
-        '<div class="fila-btn" style="margin-top:8px">' +
+        '<div class="fila-btn' + (linkCharla ? ' tres' : '') + '" style="margin-top:8px">' +
           '<button class="btn" data-a="editar" data-id="' + id + '">✏️ ' + (motivo === 'Falta la dirección' ? 'Completar' : 'Editar') + '</button>' +
-          (linkCharla ? '<a class="btn wa" target="_blank" href="' + esc(linkCharla) + '">💬 Escribirle</a>' : '<button class="btn" disabled>Sin teléfono</button>') +
+          (linkCharla ? '<a class="btn wa" target="_blank" href="' + esc(linkCharla) + '">💬 Escribirle</a>' + botonCopiar('charla', p.id).replace('btn copiar', 'btn') : '<button class="btn" disabled>Sin teléfono</button>') +
         '</div>' +
         '<button class="link" data-a="cancelar" data-id="' + id + '" style="margin-top:6px">Cancelar este pedido</button></article>';
     });
@@ -1405,6 +1522,164 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     accion('actualizarPedido', [id, { fechaEntrega: fecha }]);
     render();
     toast('Reprogramado para ' + L.fechaRelativa(fecha, hoy()) + ' ✓');
+  }
+
+  // ───────────────────────────── A QUIÉN ESCRIBIR HOY ─────────────────────────────
+
+  /** Las fichas de recompra con lo que pasó en el celu (pedidos nuevos, entregas, "No escribir"). */
+  function fichasAlDia() {
+    var porTel = {};
+    E.datos.pedidos.forEach(function (p) { if (p.telefono) (porTel[p.telefono] = porTel[p.telefono] || []).push(p); });
+    return E.datos.recompra.fichas.map(function (f) {
+      var x = Object.assign({}, f);
+      var suyos = porTel[f.telefono] || [];
+      // El celu tiene todos los pedidos sin terminar, así que sabe si hay uno en curso.
+      x.enCurso = suyos.some(L.pedidoEnCurso);
+      suyos.forEach(function (p) {
+        var carga = String(p.fechaCarga || p.fechaEntrega || '');
+        if (L.normalizarEstado(p.estado) !== L.ESTADOS.CANCELADO && carga > String(x.ultimaCarga || '')) x.ultimaCarga = carga;
+      });
+      var compras = L.comprasEntregadas(suyos);
+      var ultima = compras.length ? compras[compras.length - 1] : null;
+      if (ultima && ultima.fechaEntrega > (x.ultimaCompra || '')) {
+        x.ultimaCompra = ultima.fechaEntrega;
+        x.detalle = L.acortar(ultima.detalle || L.detalleLineas(ultima.lineas, cat()), 90);
+        if (x.tipo === L.TIPOS_RECOMPRA.ANTES) {
+          x.tipo = L.TIPOS_RECOMPRA.RECOMPRA;
+          x.ciclo = cfg().cicloPorDefecto;
+          x.plantilla = 'general';
+        }
+      }
+      return x;
+    });
+  }
+
+  function recompraHoy() {
+    if (!E.datos || !E.datos.recompra.disponible) return null;
+    return L.ordenarRecompra({ hoy: hoy(), fichas: fichasAlDia(), envios: E.datos.envios, config: cfg() });
+  }
+
+  function tarjetaRecompra(f, i) {
+    var c = cfg();
+    var msg = L.mensajeRecompra(f, c, hoy(), ahora().hora);
+    var link = L.linkWhatsapp(f.telefono, msg, c.whatsappBusiness);
+    var antes = f.tipo === L.TIPOS_RECOMPRA.ANTES;
+    var clase = f.prioridad === 'Alta' ? ' rojo' : (f.prioridad === 'Media' ? ' aviso' : '');
+    var tel = esc(f.telefono);
+    return '<article class="tarjeta">' +
+      '<div class="t-cab"><span class="t-num">' + (i + 1) + '</span><div class="t-nombre">' + esc(f.nombre || 'Sin nombre') +
+        ' <span class="chip' + clase + '">' + esc(f.prioridad) + '</span>' + (antes ? ' <span class="chip">cliente de antes</span>' : '') + '</div></div>' +
+      '<div class="t-sub">' + esc(telLindo(f.telefono)) + (f.barrio ? ' · ' + esc(f.barrio) : '') + '</div>' +
+      (antes
+        ? '<div class="t-lleva">No tiene pedidos cargados: compró antes del sistema.</div>'
+        : '<div class="t-lleva">Última compra: ' + esc(L.formatearFechaCorta(f.ultimaCompra)) + ' (hace ' + f.diasDesde + ' días) · ' +
+          (f.cantidadCompras > 1 ? 'compra cada ~' + f.ciclo + ' días' : 'compró una vez') + '<br>Llevó: ' + esc(f.detalle) + '</div>' +
+          '<div class="t-sub">' + f.cantidadCompras + ' compra(s) · ' + esc(pesos(f.totalGastado)) + ' en total</div>') +
+      (f.sinRespuesta ? '<div class="t-sub">⚠️ ' + f.sinRespuesta + ' mensaje(s) sin respuesta</div>' : '') +
+      (msg ? '<div class="t-notas">💬 ' + esc(msg) + '</div>' : '<div class="aviso">Falta el mensaje en CONFIG: “' + esc(L.CLAVES_CONFIG.mensajeRecompraGeneral) + '”.</div>') +
+      '<div class="t-botones"><div class="ancho par-wa"><a class="btn wa" target="_blank" href="' + esc(link) + '">📲 Escribir</a>' +
+        botonCopiar('recompra', '', f.telefono) + '</div>' +
+        '<button class="btn ok ancho" data-a="listoRecompra" data-tel="' + tel + '">✅ Listo, le escribí</button></div>' +
+      '<button class="link" data-a="noEscribir" data-tel="' + tel + '">No escribirle más</button></article>';
+  }
+
+  function vistaEscribir() {
+    var html = '<h1>A quién escribir hoy</h1>';
+    if (!E.datos.recompra.disponible) {
+      return html + '<div class="aviso">Para usar esta pantalla, en la planilla corré Avícola → Instalar (crea RECOMPRA y RECOMPRA_MENSAJES).</div>';
+    }
+    var r = recompraHoy();
+    var hechos = r.filas.filter(function (f) { return f.escribioHace === 0; });
+    html += '<div class="resumen-hoy">' +
+      '<div><b>' + (r.escritosHoy + r.lista.length) + '</b><span>tocan hoy</span></div>' +
+      '<div><b>' + r.escritosHoy + '</b><span>ya escribiste</span></div>' +
+      '<div><b>' + r.lista.length + '</b><span>te faltan</span></div></div>';
+    if (!r.lista.length) {
+      html += '<div class="vacio">' + (r.tope && r.escritosHoy >= r.tope
+        ? '¡Listo por hoy! Llegaste al tope de ' + r.tope + ' mensajes.'
+        : 'Hoy no le toca a nadie más 👌') + '</div>';
+    }
+    r.lista.forEach(function (f, i) { html += tarjetaRecompra(f, i); });
+    if (r.pasanTope) html += '<p class="ayuda">' + r.pasanTope + ' cliente(s) más pasan el tope de hoy: quedan para los próximos días.</p>';
+    if (hechos.length) {
+      html += '<button class="seccion-toggle" data-a="verEscritos">' + (E.verEscritos ? '▾' : '▸') + ' Ya les escribiste hoy (' + hechos.length + ')</button>';
+      if (E.verEscritos) {
+        hechos.forEach(function (f) {
+          html += '<article class="tarjeta resuelta"><div class="r-fila"><div><b>' + esc(f.nombre || 'Sin nombre') + '</b>' +
+            '<div class="r-estado">' + esc(telLindo(f.telefono)) + '</div></div>' +
+            '<button class="btn chico" data-a="deshacerEscrito" data-tel="' + esc(f.telefono) + '">Deshacer</button></div></article>';
+        });
+      }
+    }
+    html += '<p class="ayuda">Ordenados por prioridad. Nada se manda solo: “Escribir” abre WhatsApp con el mensaje y lo mandás vos. ' +
+      'Después tocá “Listo”. La misma lista está en la pestaña RECOMPRA de la planilla.</p>';
+    return html;
+  }
+
+  // ───────────────────────────── NÚMEROS ─────────────────────────────
+
+  function pedirNumeros() {
+    if (E.ocupado.numeros) return;
+    E.ocupado.numeros = true;
+    encolar('obtenerNumeros', [], {
+      persistir: false,
+      alTerminar: function (res) {
+        E.ocupado.numeros = false;
+        if (res && res.semanas) E.datos.numeros = res;
+        if (E.pestana === 'numeros') render();
+      },
+      alFallar: function (msg) {
+        E.ocupado.numeros = false;
+        if (E.pestana === 'numeros') render();
+        toast('⚠️ No pude traer los números: ' + msg);
+      }
+    });
+  }
+
+  /** Tarjeta grande: esta semana, la anterior y una flecha (verde si mejoró). */
+  function tarjetaNumero(titulo, valor, anterior, diferencia, menosEsMejor) {
+    var flecha = '';
+    if (diferencia !== null && diferencia !== undefined && isFinite(diferencia) && diferencia !== 0) {
+      var mejor = menosEsMejor ? diferencia < 0 : diferencia > 0;
+      flecha = ' <span class="' + (mejor ? 'sube' : 'baja') + '">' + (diferencia > 0 ? '▲' : '▼') + '</span>';
+    }
+    return '<div class="numero"><span>' + esc(titulo) + '</span><b>' + esc(valor) + '</b><small>Semana anterior: ' + esc(anterior) + flecha + '</small></div>';
+  }
+
+  function vistaNumeros() {
+    var n = E.datos.numeros || { semanas: [] };
+    var a = n.semanas[0];
+    var b = n.semanas[1] || null;
+    var c = cfg();
+    var pct = Math.round((c.porcentajeAgustin || 0) * 100);
+    var html = '<h1>Números</h1>';
+    if (!a) return html + '<div class="vacio">Todavía no hay números.</div><button class="btn" data-a="numerosAhora">↻ Actualizar números</button>';
+    function dif(campo) { return b && a[campo] !== null && b[campo] !== null ? a[campo] - b[campo] : null; }
+    function plata(x) { return x === null || x === undefined ? '—' : pesos(x); }
+    function porc(x) { return L.formatearPorcentaje(x); }
+    function ant(fn) { return b ? fn(b) : '—'; }
+    function mensajes(s) { return s.mensajes + (s.mensajes ? ' · ' + porc(s.porcentajeVolvio) + ' volvió' : ''); }
+    html += '<p class="ayuda">Esta semana: ' + esc(a.nombre) + ' (en curso)' + (b ? ', contra la anterior: ' + esc(b.nombre) : '') + '.</p>' +
+      '<div class="numeros">' +
+      tarjetaNumero('Ventas', pesos(a.ventas), ant(function (s) { return pesos(s.ventas); }), dif('ventas')) +
+      tarjetaNumero('Ganancia', pesos(a.ganancia), ant(function (s) { return pesos(s.ganancia); }), dif('ganancia')) +
+      tarjetaNumero('Pedidos', String(a.pedidos), ant(function (s) { return String(s.pedidos); }), dif('pedidos')) +
+      tarjetaNumero('Margen', porc(a.margen), ant(function (s) { return porc(s.margen); }), dif('margen')) +
+      tarjetaNumero('Clientes nuevos', String(a.nuevos), ant(function (s) { return String(s.nuevos); }), dif('nuevos')) +
+      tarjetaNumero('Repitieron', String(a.repitieron), ant(function (s) { return String(s.repitieron); }), dif('repitieron')) +
+      tarjetaNumero('Ganancia de los que repiten', porc(a.porcentajeRepite), ant(function (s) { return porc(s.porcentajeRepite); }), dif('porcentajeRepite')) +
+      tarjetaNumero('Mensajes de recompra', mensajes(a), ant(mensajes), dif('mensajes')) +
+      tarjetaNumero('Gasto en Meta', pesos(a.meta), ant(function (s) { return pesos(s.meta); }), dif('meta'), true) +
+      tarjetaNumero('Costo por cliente nuevo', plata(a.costoPorNuevo), ant(function (s) { return plata(s.costoPorNuevo); }), dif('costoPorNuevo'), true) +
+      tarjetaNumero('Agustín ' + pct + '%', pesos(a.agustin), ant(function (s) { return pesos(s.agustin); }), dif('agustin')) +
+      tarjetaNumero('Le queda al local', pesos(a.leQuedaLocal), ant(function (s) { return pesos(s.leQuedaLocal); }), dif('leQuedaLocal')) +
+      '</div>' +
+      '<p class="ayuda">Le queda al local = local ' + (100 - pct) + '% − gastos que paga el local − gasto en Meta (GASTO_META). ' +
+      'Actualizado: ' + esc(n.actualizado || '') + (E.ocupado.numeros ? ' · actualizando…' : '') + '</p>' +
+      '<div class="pila"><button class="btn" data-a="numerosAhora"' + (E.ocupado.numeros ? ' disabled' : '') + '>↻ Actualizar números</button>' +
+      '<button class="btn" data-a="ir" data-v="cierre">← Volver al cierre</button></div>' +
+      '<p class="ayuda">Las ' + esc(c.semanasTablero || '') + ' semanas, por promo y por barrio, están en la pestaña TABLERO de la planilla.</p>';
+    return html;
   }
 
   // ───────────────────────────── CIERRE ─────────────────────────────
@@ -1476,6 +1751,7 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     var cerrado = E.datos.cierres.filter(function (x) { return x.fecha === fecha; })[0];
     var g = E.gastoNuevo;
     return '<h1>Cierre del día</h1>' +
+      '<button class="btn" data-a="ir" data-v="numeros" style="margin-bottom:12px">📊 Números de la semana</button>' +
       '<section class="bloque"><label>Día<input type="date" class="campo" data-cierre-fecha="1" value="' + esc(fecha) + '" min="' + esc(L.sumarDias(hoy(), -7)) + '" max="' + esc(hoy()) + '"></label>' +
       (cerrado ? '<div class="aviso verde">Ya lo cerraste (' + esc(cerrado.cerrado) + '). Si cerrás de nuevo, se reemplaza.</div>' : '') +
       '<div id="cierre-resumen">' + htmlResumenCierre(r) + '</div></section>' +
@@ -1495,10 +1771,18 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       '<div class="pie-form"><button class="btn primario grande" data-a="cerrarDia"' + (E.ocupado.cierre ? ' disabled' : '') + '>🔒 ' + (E.ocupado.cierre ? 'Cerrando…' : 'Cerrar el día') + '</button></div>';
   }
 
-  function agregarGasto() {
+  function agregarGasto(forzar) {
     var g = E.gastoNuevo;
     var monto = L.parsearPesos(g.monto);
     if (monto === null || monto <= 0) { mostrarErrores(['Escribí el monto del gasto.']); return; }
+    if (!forzar && L.esGastoDePublicidad(g.descripcion, cfg().palabrasPublicidad)) {
+      abrirPanel('<h2>¿Es publicidad?</h2><div class="aviso">La publicidad se carga solo en la pestaña GASTO_META de la planilla (por semana). ' +
+        'Si la cargás también acá, se cuenta dos veces.</div><div class="pila">' +
+        '<button class="btn primario" data-a="cerrarPanel">No la cargo acá</button>' +
+        '<button class="btn" data-a="agregarGastoIgual">No es publicidad: agregar igual</button></div>');
+      return;
+    }
+    cerrarPanel();
     var fecha = E.cierreFecha || hoy();
     accion('guardarGasto', [{ id: L.nuevoId('G', fecha, aleatorio()), fecha: fecha, descripcion: String(g.descripcion || '').trim() || 'Gasto', monto: monto, quienPaga: g.quienPaga }]);
     E.gastoNuevo = gastoVacio();
@@ -1554,7 +1838,8 @@ var ERROR_INICIAL = <?!= errorJson ?>;
   function verCola() {
     var lista = E.cola.filter(function (o) { return o.persistir; });
     if (!lista.length) { toast('Todo guardado en la planilla ✓'); return; }
-    var nombres = { guardarPedido: 'Pedido', actualizarPedido: 'Cambio de estado', guardarOrden: 'Orden de la ruta', guardarGasto: 'Gasto', borrarGasto: 'Borrar gasto' };
+    var nombres = { guardarPedido: 'Pedido', actualizarPedido: 'Cambio de estado', guardarOrden: 'Orden de la ruta', guardarGasto: 'Gasto', borrarGasto: 'Borrar gasto',
+      marcarEscrito: 'Mensaje de recompra', desmarcarEscrito: 'Deshacer mensaje de recompra', marcarNoEscribir: 'No escribirle más' };
     abrirPanel('<h2>Cambios por subir (' + lista.length + ')</h2>' + lista.map(function (o) {
       return '<div class="aviso' + (o.trabada ? ' rojo' : '') + '"><b>' + esc(nombres[o.tipo] || o.tipo) + '</b>' +
         (o.ultimoError ? '<br>' + esc(o.ultimoError) : '<br>Esperando para subir…') + '</div>';
@@ -1675,6 +1960,62 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       toast('Monto actualizado ✓');
     },
     verResueltos: function () { E.verResueltos = !E.verResueltos; render(); },
+    // Copiar número y mensaje (WhatsApp Business en otro teléfono)
+    copiar: function (el) {
+      var tipo = el.getAttribute('data-v');
+      var id = el.getAttribute('data-id');
+      var d = datosParaCopiar(el);
+      if (!d) return;
+      var texto = L.textoParaCopiar(d.telefono, d.mensaje, cfg().caracteristica);
+      copiarTexto(texto, function (ok) {
+        if (ok) el.textContent = '✓ Copiado';
+        else panelCopiaManual(texto);
+        // Lo mismo que hace el botón de WhatsApp de al lado.
+        if (tipo === 'voy') {
+          E.avisados[id] = ahora().hora;
+          setTimeout(render, 700);
+          if (ok) toast('Copiado: número y mensaje ✓');
+        } else if (tipo === 'noEstaba') {
+          setTimeout(function () { cambiarEstado(id, { estado: L.ESTADOS.NO_ESTABA }, (ok ? 'Copiado ✓ · ' : '') + 'Quedó en PENDIENTES para reprogramar'); }, ok ? 700 : 0);
+        } else if (ok) {
+          toast('Copiado: número y mensaje ✓');
+        }
+      });
+    },
+    // A QUIÉN ESCRIBIR HOY
+    verEscritos: function () { E.verEscritos = !E.verEscritos; render(); },
+    listoRecompra: function (el) {
+      var tel = el.getAttribute('data-tel');
+      var f = fichaPorTel(tel);
+      var sello = ahora().sello;
+      accion('marcarEscrito', [tel, sello, f ? f.tipo : '']);
+      render();
+      toast('Anotado: le escribiste ✓', { texto: 'Deshacer', fn: function () { accion('desmarcarEscrito', [tel, sello]); render(); } });
+    },
+    deshacerEscrito: function (el) {
+      var tel = el.getAttribute('data-tel');
+      var m = E.datos.envios.filter(function (x) { return x.telefono === tel && L.fechaDeSello(x.fecha) === hoy(); })[0];
+      accion('desmarcarEscrito', [tel, m ? m.fecha : ahora().sello]);
+      render();
+      toast('Volvió a la lista de hoy');
+    },
+    noEscribir: function (el) {
+      var tel = el.getAttribute('data-tel');
+      var f = fichaPorTel(tel);
+      abrirPanel('<h2>¿No escribirle más?</h2><p>' + esc((f && f.nombre) || telLindo(tel)) + '</p>' +
+        '<p class="ayuda">Deja de aparecer para recompra. Se vuelve a activar en la planilla: CLIENTES, columna “No escribir”.</p><div class="pila">' +
+        '<button class="btn peligro" data-a="confirmarNoEscribir" data-tel="' + esc(tel) + '">Sí, no escribirle más</button>' +
+        '<button class="btn" data-a="cerrarPanel">No</button></div>');
+    },
+    confirmarNoEscribir: function (el) {
+      var tel = el.getAttribute('data-tel');
+      cerrarPanel();
+      accion('marcarNoEscribir', [tel, true]);
+      render();
+      toast('No le vas a escribir más', { texto: 'Deshacer', fn: function () { accion('marcarNoEscribir', [tel, false]); render(); } });
+    },
+    // NÚMEROS
+    numerosAhora: function () { pedirNumeros(); render(); },
     // NUEVO / EN RUTA
     clienteNuevo: function () {
       var f = formActual();
@@ -1689,7 +2030,10 @@ var ERROR_INICIAL = <?!= errorJson ?>;
       var f = formActual();
       f.etapaCliente = 'buscar'; f.clienteTel = ''; f.nombre = ''; f.telefono = '';
       f.direccion = ''; f.entreCalles = ''; f.barrio = ''; f.barrioOtro = ''; f.referencia = '';
+      if (f.recompraEl && f.origen === cfg().origenRecompra) f.origen = '';
+      f.recompraEl = '';
       pintarBloque('bloque-cliente', htmlCliente(f));
+      if (f.modo !== 'ruta') pintarBloque('bloque-entrega', htmlEntrega(f));
     },
     elegirCliente: function (el) { elegirCliente(el.getAttribute('data-tel')); },
     repetir: repetirUltimo,
@@ -1747,7 +2091,8 @@ var ERROR_INICIAL = <?!= errorJson ?>;
     // PENDIENTES
     reprogramar: function (el) { reprogramar(el.getAttribute('data-id'), el.getAttribute('data-v')); },
     // CIERRE
-    agregarGasto: agregarGasto,
+    agregarGasto: function () { agregarGasto(false); },
+    agregarGastoIgual: function () { agregarGasto(true); },
     quienPagaGasto: function (el) {
       E.gastoNuevo.quienPaga = el.getAttribute('data-v');
       var botones = document.querySelectorAll('[data-a="quienPagaGasto"]');
@@ -1844,7 +2189,7 @@ var ERROR_INICIAL = <?!= errorJson ?>;
   function iniciar() {
     E.cola = (leerLocal(CLAVE_COLA) || []).filter(function (o) { return o && o.persistir && o.tipo; });
     var pestana = leerLocal(CLAVE_PESTANA);
-    if (pestana && ['hoy', 'nuevo', 'ruta', 'pendientes', 'cierre'].indexOf(pestana) >= 0) E.pestana = pestana;
+    if (pestana && ['hoy', 'nuevo', 'ruta', 'pendientes', 'escribir', 'cierre', 'numeros'].indexOf(pestana) >= 0) E.pestana = pestana;
     if (ERROR_INICIAL || !DATOS_INICIALES) {
       mostrarErrorInicial(ERROR_INICIAL);
       return;

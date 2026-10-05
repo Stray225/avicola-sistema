@@ -23,7 +23,11 @@ var HOJAS = {
   GASTOS: 'GASTOS',
   CIERRE: 'CIERRE',
   HISTORICO: 'HISTÓRICO',
-  AVISOS: 'AVISOS'
+  AVISOS: 'AVISOS',
+  RECOMPRA: 'RECOMPRA',
+  MENSAJES: 'RECOMPRA_MENSAJES',
+  GASTO_META: 'GASTO_META',
+  TABLERO: 'TABLERO'
 };
 
 // Columnas de cada pestaña: [campo interno, encabezado en la planilla, tipo].
@@ -79,7 +83,9 @@ var ESQUEMAS = {
     ['totalGastado', 'Total gastado', 'pesos'],
     ['origenPrimera', 'Origen de la primera compra', 'texto'],
     ['notas', 'Notas', 'texto'],
-    ['alta', 'Alta', 'fechahora']
+    ['alta', 'Alta', 'fechahora'],
+    ['noEscribir', 'No escribir', 'texto'],
+    ['deAntes', 'Cliente de antes', 'texto']
   ],
   PEDIDOS: [
     ['id', 'ID pedido', 'texto'],
@@ -149,6 +155,43 @@ var ESQUEMAS = {
     ['nombre', 'Nombre', 'texto'],
     ['detalle', 'Detalle', 'texto'],
     ['actualizado', 'Actualizado', 'fechahora']
+  ],
+  // Se rearma entera cada vez que se recalcula. Lo que se tilda acá se guarda en CLIENTES y RECOMPRA_MENSAJES.
+  RECOMPRA: [
+    ['prioridad', 'Prioridad', 'texto'],
+    ['estado', 'Estado', 'texto'],
+    ['nombre', 'Nombre', 'texto'],
+    ['tipo', 'Tipo', 'texto'],
+    ['telefono', 'Teléfono', 'telefono'],
+    ['barrio', 'Barrio', 'texto'],
+    ['ultimaCompra', 'Última compra', 'fecha'],
+    ['diasDesde', 'Días desde la última compra', 'numero'],
+    ['ciclo', 'Ciclo del cliente (días)', 'numero'],
+    ['detalle', 'Qué compró la última vez', 'texto'],
+    ['cantidadCompras', 'Cantidad de compras', 'numero'],
+    ['totalGastado', 'Total gastado', 'pesos'],
+    ['escribir', 'Escribir', 'link'],
+    ['leEscribi', 'Le escribí', 'casilla'],
+    ['leEscribiEl', 'Le escribí el', 'fechahora'],
+    ['resultado', 'Resultado', 'texto'],
+    ['noEscribir', 'No escribir', 'casilla'],
+    ['mensaje', 'Mensaje', 'texto']
+  ],
+  // Un renglón por cada mensaje de recompra que mandó (sirve para medir si funcionó).
+  MENSAJES: [
+    ['id', 'ID mensaje', 'texto'],
+    ['fecha', 'Le escribí el', 'fechahora'],
+    ['telefono', 'Teléfono', 'telefono'],
+    ['cliente', 'Cliente', 'texto'],
+    ['tipo', 'Tipo', 'texto'],
+    ['resultado', 'Resultado', 'texto'],
+    ['pedido', 'Pedido con el que volvió', 'texto'],
+    ['actualizado', 'Actualizado', 'fechahora']
+  ],
+  GASTO_META: [
+    ['semana', 'Semana (lunes)', 'fecha'],
+    ['monto', 'Monto gastado en anuncios', 'pesos'],
+    ['notas', 'Notas', 'texto']
   ]
 };
 
@@ -186,7 +229,29 @@ function semillas_() {
       [C.mensajeNoEstaba, '¡Hola {nombre}! Pasé con tu pedido y no te encontré 😕 ¿Cuándo te queda bien que vuelva?', 'Botón "No estaba".'],
       [C.mensajeConfirmacion, '¡Hola {nombre}! Te confirmo el pedido: {detalle}. Total {total}. Te lo llevo {fecha} 🚚', 'Botón para confirmar después de cargar un pedido.'],
       [C.idClientesImportar, '', 'ID (o link) de la planilla de contactos para "Importar clientes".'],
-      [C.idVentasImportar, '', 'ID (o link) de la planilla con la pestaña "Ventas" para "Importar ventas de octubre".']
+      [C.idVentasImportar, '', 'ID (o link) de la planilla con la pestaña "Ventas" para "Importar ventas de octubre".'],
+      // Recompra: el sistema dice a quién escribir y arma el mensaje; el envío lo hace él desde WhatsApp Business.
+      [C.origenRecompra, 'Recompra', 'Origen que la app sugiere al cargar un pedido de alguien a quien le escribiste por recompra hace poco.'],
+      [C.cicloPorDefecto, '14', 'Cada cuántos días suponemos que vuelve a comprar un cliente que compró una sola vez.'],
+      [C.diasSinRepetir, '7', 'Si le escribiste hace menos de estos días, no vuelve a aparecer para escribirle.'],
+      [C.diasParaMedir, '7', 'Si compra dentro de estos días después del mensaje: "Volvió a comprar". Si no: "Sin respuesta".'],
+      [C.topeMensajes, '15', 'Máximo de mensajes de recompra por día. La lista de hoy muestra primero los de mayor prioridad.'],
+      [C.nombresDireccion, 'calle, av, avenida, entre', 'Si el nombre empieza con una de estas palabras (o tiene números), es una dirección: el mensaje saluda sin nombre.'],
+      [C.horaRecalculo, '8', 'Hora en que RECOMPRA y TABLERO se recalculan solos todos los días. Si la cambiás, corré Avícola → Instalar.'],
+      [C.mensajeRecompraGeneral, '¡Hola {nombre}! ¿Cómo va? La otra vez te llevé {ultima_compra}. ¿Te alcanzo algo {dia_reparto}? Agus de Llegamos 🚚',
+        'Mensaje de recompra si no hay uno para lo que compró. Podés usar {nombre}, {ultima_compra} y {dia_reparto}.'],
+      ['Mensaje recompra: PROMO FULL', '¡Hola {nombre}! ¿Ya se terminó la PROMO FULL? 😄 Si querés te armo otra y te la llevo {dia_reparto}. Agus de Llegamos',
+        'Ejemplo de mensaje para una promo: "Mensaje recompra: " y el nombre o el código de la promo.', true],
+      ['Mensaje recompra: Huevos', '¡Hola {nombre}! ¿Cómo andás de huevos? 🥚 Paso {dia_reparto} por tu zona, ¿te dejo un maple? Agus de Llegamos',
+        'Ejemplo de mensaje para una categoría ("Categoría" de COSTOS). Si compró una promo con mensaje propio, va el de la promo.', true],
+      [C.mensajeRecompraAntes, '¡Hola {nombre}! Soy Agus, de Llegamos 👋 Hace un tiempo te llevamos un pedido. Tenemos promos nuevas, ¿te alcanzo algo {dia_reparto}? Agus de Llegamos',
+        'Mensaje para los clientes de antes: están en CLIENTES pero no tienen pedidos cargados.'],
+      [C.palabrasPublicidad, 'publicidad, anuncio, Meta', 'Si un gasto de GASTOS dice alguna de estas palabras, aparece en AVISOS: la publicidad va solo en GASTO_META.'],
+      [C.origenesAnuncio, 'Anuncio', 'Los orígenes que contienen estas palabras son anuncios (para el costo por cliente nuevo del TABLERO).'],
+      [C.semanasTablero, '8', 'Cuántas semanas muestra el TABLERO.'],
+      [C.semanasDetalle, '4', 'De cuántas semanas son los cuadros por promo y por barrio del TABLERO.'],
+      [C.diasActivo, '30', 'Cliente activo: compró en los últimos N días.'],
+      [C.diasPerdido, '60', 'Cliente perdido: hace más de N días que no compra. Entre activo y perdido está "en riesgo".']
     ],
     zonas: [
       ['Berazategui', 'sí'], ['Hudson', 'sí'], ['Plátanos', 'sí'], ['Ranelagh', 'sí'], ['Villa España', 'sí'],
@@ -219,6 +284,9 @@ function onOpen() {
     .addItem('Hoja de reparto', 'hojaDesdeMenu')
     .addItem('Cerrar el día', 'cerrarDiaDesdeMenu')
     .addSeparator()
+    .addItem('Recalcular recompra', 'recalcularRecompraDesdeMenu')
+    .addItem('Recalcular tablero', 'recalcularTableroDesdeMenu')
+    .addSeparator()
     .addItem('Importar clientes', 'importarClientesDesdeMenu')
     .addItem('Importar ventas de octubre', 'importarVentasDesdeMenu')
     .addSeparator()
@@ -242,6 +310,23 @@ function desdeMenu_(fn) {
 function instalarDesdeMenu() { desdeMenu_(instalar_); }
 function importarClientesDesdeMenu() { desdeMenu_(importarClientes_); }
 function importarVentasDesdeMenu() { desdeMenu_(importarVentasOctubre_); }
+
+function recalcularRecompraDesdeMenu() {
+  desdeMenu_(function () {
+    var r = recalcularRecompra();
+    return 'RECOMPRA lista ✓\n\nHoy tocan ' + r.lista + ' mensaje(s)' + (r.pasanTope ? ' (y ' + r.pasanTope + ' más pasan el tope del día)' : '') +
+      '.\nClientes en la lista: ' + r.filas + '.\n\nEscribiles desde la web app (A quién escribir hoy) o con el link "Escribir" de la pestaña RECOMPRA.';
+  });
+}
+
+function recalcularTableroDesdeMenu() {
+  desdeMenu_(function () {
+    var r = recalcularTablero();
+    var s = r.semanas[0];
+    return 'TABLERO listo ✓\n\nEsta semana: ' + s.pedidos + ' pedido(s), ventas ' + Logica.formatearPesos(s.ventas) +
+      ', ganancia ' + Logica.formatearPesos(s.ganancia) + '.\n\nEl detalle está en la pestaña TABLERO.';
+  });
+}
 
 function actualizarAvisosDesdeMenu() {
   desdeMenu_(function () {
@@ -336,7 +421,11 @@ function instalar_() {
   var config = asegurarHoja_(HOJAS.CONFIG, ESQUEMAS.CONFIG, informe);
   var tc = tabla_(HOJAS.CONFIG);
   var clavesExistentes = tc.filas.map(function (f) { return clave_(f[tc.idx[clave_('Clave')]]); });
-  var nuevasConfig = sem.config.filter(function (r) { return clavesExistentes.indexOf(clave_(r[0])) < 0; })
+  // Los mensajes de recompra de ejemplo se cargan una sola vez: si borrás uno, no vuelve.
+  var prefijo = clave_(Logica.PREFIJO_MENSAJE_RECOMPRA);
+  var fijas = [clave_(Logica.CLAVES_CONFIG.mensajeRecompraGeneral), clave_(Logica.CLAVES_CONFIG.mensajeRecompraAntes)];
+  var hayEjemplos = clavesExistentes.some(function (k) { return k.indexOf(prefijo) === 0 && fijas.indexOf(k) < 0; });
+  var nuevasConfig = sem.config.filter(function (r) { return clavesExistentes.indexOf(clave_(r[0])) < 0 && !(r[3] && hayEjemplos); })
     .map(function (r) { return { clave: r[0], valor: r[1], ayuda: r[2] }; });
   agregarFilas_(tc, ESQUEMAS.CONFIG, nuevasConfig);
   if (!config.creada && nuevasConfig.length) informe.push('Agregué a CONFIG: ' + nuevasConfig.map(function (r) { return r.clave; }).join(', ') + '.');
@@ -405,11 +494,66 @@ function instalar_() {
   asegurarHoja_(HOJAS.HISTORICO, esquemaHistorico_(leerConfig_().porcentajeAgustin), informe);
   asegurarHoja_(HOJAS.AVISOS, ESQUEMAS.AVISOS, informe);
 
+  // Recompra y tablero
+  var recompra = asegurarHoja_(HOJAS.RECOMPRA, ESQUEMAS.RECOMPRA, informe);
+  if (recompra.creada) recompra.hoja.setFrozenColumns(3);
+  asegurarHoja_(HOJAS.MENSAJES, ESQUEMAS.MENSAJES, informe);
+  var meta = asegurarHoja_(HOJAS.GASTO_META, ESQUEMAS.GASTO_META, informe);
+  if (meta.creada) meta.hoja.setColumnWidth(1, 140).setColumnWidth(2, 210).setColumnWidth(3, 320);
+  if (!ss.getSheetByName(HOJAS.TABLERO)) {
+    ss.insertSheet(HOJAS.TABLERO, ss.getSheets().length).getRange(1, 1)
+      .setValue('Acá aparecen los números por semana (menú Avícola → Recalcular tablero; también se recalcula solo todos los días).');
+    informe.push('Creé la pestaña ' + HOJAS.TABLERO + '.');
+  }
+
+  CACHE_ = {};
+  asegurarActivadorDiario_(informe);
+  [['RECOMPRA', recalcularRecompra], ['TABLERO', recalcularTablero]].forEach(function (x) {
+    try {
+      CACHE_ = {};
+      x[1]();
+    } catch (err) {
+      informe.push('⚠️ No pude calcular ' + x[0] + ': ' + mensajeError_(err));
+    }
+  });
   CACHE_ = {};
   var avisos = actualizarAvisos();
   informe.push(avisos.length ? 'Hay ' + avisos.length + ' aviso(s) en la pestaña AVISOS (precios vacíos, costos faltantes, promos a revisar).' : 'Sin avisos.');
   informe.push('No toqué INICIO, COSTOS, PROMOS ni STOCK.');
   return 'Instalación lista ✓\n\n' + informe.join('\n');
+}
+
+var FUNCION_DIARIA_ = 'recalcularTodoDiario';
+
+/** Activador que recalcula RECOMPRA, TABLERO y AVISOS todos los días a la hora de CONFIG. */
+function asegurarActivadorDiario_(informe) {
+  var minutos = Logica.minutosDeHora(leerConfig_().horaRecalculo);
+  if (minutos === null) {
+    informe.push('⚠️ Falta la "' + Logica.CLAVES_CONFIG.horaRecalculo + '" en CONFIG: RECOMPRA y TABLERO no se van a recalcular solos.');
+    return;
+  }
+  var hora = Math.floor(minutos / 60);
+  // Se borra y se vuelve a crear, así toma la hora de CONFIG y nunca queda duplicado.
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === FUNCION_DIARIA_) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger(FUNCION_DIARIA_).timeBased().everyDays(1).atHour(hora).inTimezone(Logica.ZONA_HORARIA).create();
+  informe.push('RECOMPRA y TABLERO se recalculan solos todos los días entre las ' + hora + ' y las ' + (hora + 1) + ' (Google elige el minuto).');
+}
+
+/** Lo corre el activador diario. Si una parte falla, las otras se hacen igual. */
+function recalcularTodoDiario() {
+  var errores = [];
+  [recalcularRecompra, recalcularTablero, actualizarAvisos].forEach(function (fn) {
+    try {
+      CACHE_ = {};
+      fn();
+    } catch (err) {
+      errores.push(mensajeError_(err));
+    }
+  });
+  if (errores.length) throw new Error('Recálculo diario con errores: ' + errores.join(' | '));
+  return 'ok';
 }
 
 /** Crea la pestaña si no existe; si existe, solo le agrega las columnas que le falten. */
@@ -542,6 +686,7 @@ function convertirLectura_(v, tipo) {
   if (tipo === 'pesos') return v === '' || v === null ? null : Logica.parsearPesos(v);
   if (tipo === 'numero') return v === '' || v === null ? null : Logica.parsearMonto(v);
   if (tipo === 'porcentaje') return v === '' || v === null ? null : Logica.parsearPorcentaje(v);
+  if (tipo === 'casilla') return v === true || Logica.esSi(v);
   if (tipo === 'telefono') {
     var car = CACHE_.config ? CACHE_.config.caracteristica : '';
     return Logica.normalizarTelefono(v, car) || Logica.texto(v);
@@ -559,7 +704,7 @@ function objetos_(t, esquema) {
     esquema.forEach(function (col) {
       var j = col[1] ? t.idx[clave_(col[1])] : undefined;
       var v = j === undefined ? '' : convertirLectura_(fila[j], col[2]);
-      if (v !== '' && v !== null) vacia = false;
+      if (v !== '' && v !== null && v !== false) vacia = false;
       o[col[0]] = v === null ? null : v;
     });
     if (!vacia) salida.push(o);
@@ -568,6 +713,7 @@ function objetos_(t, esquema) {
 }
 
 function valorEscritura_(v, tipo) {
+  if (tipo === 'casilla') return v === true || Logica.esSi(v);
   if (v === null || v === undefined) return '';
   if (typeof v === 'boolean') return v ? 'sí' : '';
   if (tipo === 'pesos' || tipo === 'numero' || tipo === 'porcentaje') return v === '' || isNaN(Number(v)) ? '' : Number(v);
@@ -720,6 +866,34 @@ function leerGastos_() {
   return objetos_(tabla_(HOJAS.GASTOS), ESQUEMAS.GASTOS).filter(function (g) { return g.id || g.monto; });
 }
 
+function hojaExiste_(nombre) { return !!ss_().getSheetByName(nombre); }
+
+function leerClientes_() {
+  var t = tabla_(HOJAS.CLIENTES);
+  return { t: t, lista: objetos_(t, ESQUEMAS.CLIENTES).filter(function (c) { return c.telefono; }) };
+}
+
+/** Mensajes de recompra mandados. Si la pestaña todavía no existe (falta correr Instalar), lista vacía. */
+function leerMensajes_() {
+  if (!hojaExiste_(HOJAS.MENSAJES)) return { t: null, lista: [] };
+  var t = tabla_(HOJAS.MENSAJES);
+  return { t: t, lista: objetos_(t, ESQUEMAS.MENSAJES).filter(function (m) { return m.telefono && Logica.fechaDeSello(m.fecha); }) };
+}
+
+function leerGastoMeta_() {
+  if (!hojaExiste_(HOJAS.GASTO_META)) return [];
+  return objetos_(tabla_(HOJAS.GASTO_META), ESQUEMAS.GASTO_META).filter(function (g) { return g.semana && g.monto; })
+    .map(function (g) { return { semana: g.semana, monto: g.monto }; });
+}
+
+/** Todos los pedidos con sus productos (para recompra y tablero). */
+function pedidosConLineas_() {
+  var lineas = leerLineas_().porPedido;
+  return leerPedidos_().lista.map(function (p) { return pedidoParaApp_(p, lineas[p.id]); });
+}
+
+function envioParaLogica_(m) { return { telefono: m.telefono, fecha: m.fecha }; }
+
 /** El pedido como lo usa la web app (sin datos internos de la planilla). */
 function pedidoParaApp_(p, lineas) {
   var o = {};
@@ -786,16 +960,24 @@ function obtenerDatos_() {
   var ahora = ahora_();
   var catalogo = leerCatalogo_();
   var desde = Logica.sumarDias(ahora.fecha, -7);
-  var clientes = objetos_(tabla_(HOJAS.CLIENTES), ESQUEMAS.CLIENTES).filter(function (c) { return c.telefono; })
-    .map(function (c) {
-      return {
-        telefono: c.telefono, nombre: c.nombre, direccion: c.direccion, entreCalles: c.entreCalles,
-        barrio: c.barrio, referencia: c.referencia, ultimaCompra: c.ultimaCompra,
-        cantidadCompras: Number(c.cantidadCompras) || 0, notas: c.notas
-      };
-    });
+  var todosLosClientes = leerClientes_().lista;
+  var clientes = todosLosClientes.map(function (c) {
+    return {
+      telefono: c.telefono, nombre: c.nombre, direccion: c.direccion, entreCalles: c.entreCalles,
+      barrio: c.barrio, referencia: c.referencia, ultimaCompra: c.ultimaCompra,
+      cantidadCompras: Number(c.cantidadCompras) || 0, notas: c.notas, noEscribir: Logica.esSi(c.noEscribir)
+    };
+  });
   var pedidos = leerPedidos_().lista;
   var lineas = leerLineas_().porPedido;
+  var conLineas = pedidos.map(function (p) { return pedidoParaApp_(p, lineas[p.id]); });
+  var gastos = leerGastos_();
+  var mensajes = leerMensajes_();
+  var envios = mensajes.lista.map(envioParaLogica_);
+  var numeros = Logica.calcularTablero({
+    hoy: ahora.fecha, pedidos: conLineas, gastos: gastos, gastoMeta: leerGastoMeta_(), envios: envios,
+    clientes: todosLosClientes, catalogo: catalogo, config: cfg, semanas: 2, sinDetalle: true
+  });
   var ultimos = {};
   pedidos.forEach(function (p) {
     if (!p.telefono || !lineas[p.id] || p.estado === Logica.ESTADOS.CANCELADO) return;
@@ -813,14 +995,23 @@ function obtenerDatos_() {
     catalogo: { items: catalogo.items, costosBase: catalogo.costosBase },
     zonas: leerZonas_(),
     clientes: clientes,
-    pedidos: pedidos.filter(function (p) { return !Logica.esEstadoFinal(p.estado) || p.fechaEntrega >= desde; })
-      .map(function (p) { return pedidoParaApp_(p, lineas[p.id]); }),
+    // Lo que no está terminado (también los "no estaba" viejos, que siguen en PENDIENTES) y lo de la última semana.
+    pedidos: conLineas.filter(function (p) {
+      return Logica.pedidoEnCurso(p) || p.fechaEntrega >= desde;
+    }),
     ultimos: ultimos,
-    gastos: leerGastos_().filter(function (g) { return g.fecha >= desde; }).map(function (g) {
+    gastos: gastos.filter(function (g) { return g.fecha >= desde; }).map(function (g) {
       return { id: g.id, fecha: g.fecha, descripcion: g.descripcion, monto: g.monto || 0, quienPaga: Logica.normalizarQuienPaga(g.quienPaga) };
     }),
     cierres: historico.filter(function (h) { return h.fecha >= desde; }).map(function (h) { return { fecha: h.fecha, cerrado: h.cerrado }; }),
-    hojasImpresas: hojasImpresas_()
+    hojasImpresas: hojasImpresas_(),
+    // A QUIÉN ESCRIBIR HOY: el celu ordena las fichas con los mensajes ya mandados (así "Listo" se ve al toque).
+    recompra: {
+      disponible: hojaExiste_(HOJAS.RECOMPRA) && !!mensajes.t,
+      fichas: Logica.fichasRecompra({ clientes: todosLosClientes, pedidos: conLineas, catalogo: catalogo, config: cfg })
+    },
+    envios: envios,
+    numeros: { semanas: numeros.semanas, actualizado: ahora.sello }
   };
 }
 
@@ -1133,17 +1324,15 @@ function escribirCierre_(r, cfg) {
   var hoja = ss_().getSheetByName(HOJAS.CIERRE) || ss_().insertSheet(HOJAS.CIERRE, ss_().getSheets().length);
   var P = '"$"#,##0';
   var PCT = '0.0%';
-  var filas = [];
-  var titulos = [];
-  var subtitulos = [];
-  function fila(valores, formatos) { filas.push({ v: valores, f: formatos || [] }); return filas.length; }
-  function titulo(t) { titulos.push(fila([t])); }
-  function encabezado(cols) { subtitulos.push(fila(cols)); }
-  function vacia() { fila(['']); }
+  var inf = nuevoInforme_();
+  var fila = inf.fila;
+  var titulo = inf.titulo;
+  var encabezado = inf.encabezado;
+  var vacia = inf.vacia;
   var pct = Math.round((r.porcentajeAgustin || 0) * 100);
   var hayCompartidos = r.gastosCompartidos > 0;
 
-  titulos.push(fila(['CIERRE DEL DÍA — ' + Logica.formatearFechaLarga(r.fecha) + ' ' + Logica.formatearFecha(r.fecha).slice(-4)]));
+  titulo('CIERRE DEL DÍA — ' + Logica.formatearFechaLarga(r.fecha) + ' ' + Logica.formatearFecha(r.fecha).slice(-4));
   fila(['Cerrado el ' + r.cerrado]);
   vacia();
   titulo('RESUMEN');
@@ -1198,7 +1387,23 @@ function escribirCierre_(r, cfg) {
     if (r.costosFaltantes) fila(['Hay pedidos con costos faltantes: la ganancia real es menor. Mirá la pestaña AVISOS.']);
   }
 
-  var ancho = 8;
+  pintarInforme_(hoja, inf, 8);
+  hoja.setColumnWidth(1, 260).setColumnWidth(3, 320);
+}
+
+/** Un informe que se arma fila por fila (lo usan CIERRE y TABLERO). */
+function nuevoInforme_() {
+  var inf = { filas: [], titulos: [], subtitulos: [] };
+  inf.fila = function (valores, formatos) { inf.filas.push({ v: valores, f: formatos || [] }); return inf.filas.length; };
+  inf.titulo = function (t) { inf.titulos.push(inf.fila([t])); };
+  inf.encabezado = function (cols) { inf.subtitulos.push(inf.fila(cols)); };
+  inf.vacia = function () { inf.fila(['']); };
+  return inf;
+}
+
+/** Borra la pestaña y escribe el informe de una vez, con títulos en verde. */
+function pintarInforme_(hoja, inf, ancho) {
+  var filas = inf.filas;
   hoja.clear();
   if (hoja.getMaxColumns() < ancho) hoja.insertColumnsAfter(hoja.getMaxColumns(), ancho - hoja.getMaxColumns());
   if (hoja.getMaxRows() < filas.length) hoja.insertRowsAfter(hoja.getMaxRows(), filas.length - hoja.getMaxRows());
@@ -1211,9 +1416,8 @@ function escribirCierre_(r, cfg) {
   var rango = hoja.getRange(1, 1, filas.length, ancho);
   rango.setNumberFormats(formatos);
   rango.setValues(valores);
-  titulos.forEach(function (n) { hoja.getRange(n, 1, 1, ancho).setFontWeight('bold').setBackground(VERDE_OSCURO).setFontColor('#ffffff'); });
-  subtitulos.forEach(function (n) { hoja.getRange(n, 1, 1, ancho).setFontWeight('bold').setBackground('#e8f5e9'); });
-  hoja.setColumnWidth(1, 260).setColumnWidth(3, 320);
+  inf.titulos.forEach(function (n) { hoja.getRange(n, 1, 1, ancho).setFontWeight('bold').setBackground(VERDE_OSCURO).setFontColor('#ffffff'); });
+  inf.subtitulos.forEach(function (n) { hoja.getRange(n, 1, 1, ancho).setFontWeight('bold').setBackground('#e8f5e9'); });
 }
 
 /** Columnas de HISTÓRICO. Las de Agustín y el local llevan el porcentaje de CONFIG ("Local 30%"). */
@@ -1258,6 +1462,385 @@ function guardarHistorico_(r) {
   else agregarFilas_(t, esquema, [obj]);
 }
 
+// ═════════════════════════════ Recompra ═════════════════════════════
+// El sistema dice a quién escribir y arma el mensaje. Nada se manda solo: él escribe desde WhatsApp Business.
+
+function encabezado_(esquema, campo) {
+  var c = esquema.filter(function (x) { return x[0] === campo; })[0];
+  return c ? c[1] : '';
+}
+
+function telefonoDe_(v) { return Logica.normalizarTelefono(v, leerConfig_().caracteristica); }
+
+function aleatorio_() {
+  var abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  var s = '';
+  for (var i = 0; i < 5; i++) s += abc.charAt(Math.floor(Math.random() * abc.length));
+  return s;
+}
+
+function agruparPorTelefono_(pedidos) {
+  var g = {};
+  pedidos.forEach(function (p) { if (p.telefono) (g[p.telefono] = g[p.telefono] || []).push(p); });
+  return g;
+}
+
+/** Escribe un campo en varias filas. Si son muchas, reescribe la columna entera de una vez (es mucho más rápido). */
+function escribirColumna_(t, esquema, campo, cambios) {
+  if (!cambios.length) return;
+  var col = esquema.filter(function (c) { return c[0] === campo; })[0];
+  var j = t.idx[clave_(col[1])];
+  if (j === undefined) return;
+  if (cambios.length <= 20) {
+    cambios.forEach(function (c) { var o = {}; o[campo] = c.valor; escribirCampos_(t, c.fila, o, esquema, [campo]); });
+    return;
+  }
+  var porFila = {};
+  cambios.forEach(function (c) { porFila[c.fila] = c.valor; });
+  var valores = t.filas.map(function (f, i) {
+    var n = t.primeraFila + i;
+    return [porFila[n] !== undefined ? valorEscritura_(porFila[n], col[2]) : f[j]];
+  });
+  var rango = t.hoja.getRange(t.primeraFila, j + 1, valores.length, 1);
+  var formato = formatoColumna_(col[2]);
+  if (formato) rango.setNumberFormat(formato);
+  rango.setValues(valores);
+}
+
+/** Anota un mensaje de recompra (uno por teléfono y por día). mensajes: lo leído de RECOMPRA_MENSAJES. */
+function registrarEnvio_(telefono, sello, datos, mensajes) {
+  mensajes = mensajes || leerMensajes_();
+  if (!mensajes.t) throw new Error('Falta la pestaña ' + HOJAS.MENSAJES + '. Corré Avícola → Instalar.');
+  var tel = telefonoDe_(telefono);
+  var dia = Logica.fechaDeSello(sello);
+  if (!tel || !dia) throw new Error('Faltan el teléfono o la fecha del mensaje.');
+  var ya = mensajes.lista.filter(function (m) { return m.telefono === tel && Logica.fechaDeSello(m.fecha) === dia; })[0];
+  if (ya) return ya;
+  var obj = {
+    id: Logica.nuevoId('M', dia, aleatorio_()), fecha: Logica.texto(sello), telefono: tel,
+    cliente: Logica.texto(datos && datos.cliente), tipo: Logica.texto(datos && datos.tipo) || Logica.TIPOS_RECOMPRA.RECOMPRA,
+    resultado: Logica.RESULTADOS.ESPERANDO, pedido: '', actualizado: ahora_().sello
+  };
+  obj._fila = agregarFilas_(mensajes.t, ESQUEMAS.MENSAJES, [obj]);
+  mensajes.lista.push(obj);
+  return obj;
+}
+
+/** Borra el mensaje de ese teléfono en ese día (si lo marcó por error). */
+function borrarEnvio_(telefono, dia) {
+  var m = leerMensajes_();
+  if (!m.t || !dia) return 0;
+  var tel = telefonoDe_(telefono);
+  var filas = m.lista.filter(function (x) { return x.telefono === tel && Logica.fechaDeSello(x.fecha) === dia; })
+    .map(function (x) { return x._fila; });
+  if (filas.length) borrarFilas_(m.t.hoja, filas);
+  return filas.length;
+}
+
+function marcarNoEscribirCliente_(telefono, valor) {
+  var cli = leerClientes_();
+  var tel = telefonoDe_(telefono);
+  var c = cli.lista.filter(function (x) { return x.telefono === tel; })[0];
+  if (!c) throw new Error('No encontré ese teléfono en CLIENTES.');
+  escribirCampos_(cli.t, c._fila, { noEscribir: valor ? 'sí' : '' }, ESQUEMAS.CLIENTES, ['noEscribir']);
+}
+
+/** Una fila de RECOMPRA lista para escribir (con el mensaje y el link de WhatsApp). */
+function filaHojaRecompra_(f, porTel, hoy, hora, cfg) {
+  var msg = Logica.mensajeRecompra(f, cfg, hoy, hora);
+  var col = Logica.columnasMensajeRecompra(f, porTel[f.telefono] || [], hoy, cfg);
+  return {
+    prioridad: f.prioridad, estado: f.estado, nombre: f.nombre || 'Sin nombre', tipo: f.tipo, telefono: f.telefono,
+    barrio: f.barrio, ultimaCompra: f.ultimaCompra, diasDesde: f.diasDesde === null ? '' : f.diasDesde,
+    ciclo: f.ciclo === null ? '' : f.ciclo, detalle: f.detalle, cantidadCompras: f.cantidadCompras, totalGastado: f.totalGastado,
+    escribir: 'Escribir', leEscribi: col.leEscribi, leEscribiEl: col.leEscribiEl, resultado: col.resultado,
+    noEscribir: false, mensaje: msg, _link: Logica.linkWhatsapp(f.telefono, msg, false)
+  };
+}
+
+function escribirRecompra_(filas, porTel, hoy, cfg) {
+  var t = tabla_(HOJAS.RECOMPRA);
+  var hoja = t.hoja;
+  if (t.filas.length) {
+    var viejo = hoja.getRange(t.primeraFila, 1, t.filas.length, Math.max(t.enc.length, 1));
+    viejo.clearDataValidations();
+    viejo.clearContent();
+  }
+  if (!filas.length) return;
+  var hora = ahora_().hora;
+  var objetos = filas.map(function (f) { return filaHojaRecompra_(f, porTel, hoy, hora, cfg); });
+  t = tabla_(HOJAS.RECOMPRA);
+  var desde = agregarFilas_(t, ESQUEMAS.RECOMPRA, objetos);
+  var casilla = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+  ['leEscribi', 'noEscribir'].forEach(function (campo) {
+    var j = t.idx[clave_(encabezado_(ESQUEMAS.RECOMPRA, campo))];
+    if (j !== undefined) hoja.getRange(desde, j + 1, objetos.length, 1).setDataValidation(casilla);
+  });
+  var jl = t.idx[clave_(encabezado_(ESQUEMAS.RECOMPRA, 'escribir'))];
+  if (jl !== undefined) {
+    hoja.getRange(desde, jl + 1, objetos.length, 1).setRichTextValues(objetos.map(function (o) {
+      var b = SpreadsheetApp.newRichTextValue().setText(o.escribir);
+      return [(o._link ? b.setLinkUrl(o._link) : b).build()];
+    }));
+  }
+}
+
+/** Lo tildado a mano en RECOMPRA se guarda antes de rearmarla (por si algo no pasó por onEdit). */
+function sincronizarCasillasRecompra_() {
+  var filas = objetos_(tabla_(HOJAS.RECOMPRA), ESQUEMAS.RECOMPRA).filter(function (f) { return Logica.telefonoValido(f.telefono); });
+  if (!filas.length) return;
+  var mensajes = leerMensajes_();
+  var ahora = ahora_();
+  filas.forEach(function (f) {
+    if (f.leEscribi) registrarEnvio_(f.telefono, f.leEscribiEl || ahora.sello, { cliente: f.nombre, tipo: f.tipo }, mensajes);
+  });
+  var tels = filas.filter(function (f) { return f.noEscribir; }).map(function (f) { return f.telefono; });
+  if (!tels.length) return;
+  var cli = leerClientes_();
+  escribirColumna_(cli.t, ESQUEMAS.CLIENTES, 'noEscribir', cli.lista.filter(function (c) {
+    return tels.indexOf(c.telefono) >= 0 && !Logica.esSi(c.noEscribir);
+  }).map(function (c) { return { fila: c._fila, valor: 'sí' }; }));
+}
+
+/** Los clientes de antes quedan marcados en CLIENTES (así no cuentan como nuevos cuando vuelven). */
+function marcarClientesDeAntes_(cli, fichas) {
+  var antes = {};
+  fichas.forEach(function (f) { if (f.tipo === Logica.TIPOS_RECOMPRA.ANTES) antes[f.telefono] = true; });
+  escribirColumna_(cli.t, ESQUEMAS.CLIENTES, 'deAntes', cli.lista.filter(function (c) {
+    return antes[c.telefono] && !Logica.esSi(c.deAntes);
+  }).map(function (c) { return { fila: c._fila, valor: 'sí' }; }));
+}
+
+/** Pone al día la columna "Resultado" de RECOMPRA_MENSAJES. */
+function actualizarResultadosMensajes_(mensajes, porTel, hoy, cfg) {
+  if (!mensajes.t) return;
+  var sello = ahora_().sello;
+  var res = [];
+  var ped = [];
+  var act = [];
+  mensajes.lista.forEach(function (m) {
+    var r = Logica.resultadoMensaje(m, porTel[m.telefono] || [], hoy, cfg.diasParaMedir);
+    if (r.resultado === Logica.texto(m.resultado) && r.pedido === Logica.texto(m.pedido)) return;
+    res.push({ fila: m._fila, valor: r.resultado });
+    ped.push({ fila: m._fila, valor: r.pedido });
+    act.push({ fila: m._fila, valor: sello });
+  });
+  var t = tabla_(HOJAS.MENSAJES);
+  escribirColumna_(t, ESQUEMAS.MENSAJES, 'resultado', res);
+  escribirColumna_(t, ESQUEMAS.MENSAJES, 'pedido', ped);
+  escribirColumna_(t, ESQUEMAS.MENSAJES, 'actualizado', act);
+}
+
+/** Rearma la pestaña RECOMPRA (menú, activador diario e instalar). */
+function recalcularRecompra() {
+  return conLock_(function () {
+    CACHE_ = {};
+    if (!hojaExiste_(HOJAS.RECOMPRA) || !hojaExiste_(HOJAS.MENSAJES)) throw new Error('Faltan las pestañas de recompra. Corré Avícola → Instalar.');
+    sincronizarCasillasRecompra_();
+    var cfg = leerConfig_();
+    var hoy = ahora_().fecha;
+    var pedidos = pedidosConLineas_();
+    var cli = leerClientes_();
+    var fichas = Logica.fichasRecompra({ clientes: cli.lista, pedidos: pedidos, catalogo: leerCatalogo_(), config: cfg });
+    marcarClientesDeAntes_(cli, fichas);
+    var mensajes = leerMensajes_();
+    var r = Logica.ordenarRecompra({ hoy: hoy, fichas: fichas, envios: mensajes.lista.map(envioParaLogica_), config: cfg });
+    var porTel = agruparPorTelefono_(pedidos);
+    actualizarResultadosMensajes_(mensajes, porTel, hoy, cfg);
+    escribirRecompra_(r.filas, porTel, hoy, cfg);
+    return { filas: r.filas.length, lista: r.lista.length, pasanTope: r.pasanTope, escritosHoy: r.escritosHoy };
+  });
+}
+
+/** Vuelve a calcular solo las filas de RECOMPRA de esos teléfonos (después de tildar o destildar). */
+function actualizarFilasRecompra_(telefonos) {
+  if (!telefonos.length || !hojaExiste_(HOJAS.RECOMPRA)) return;
+  var cfg = leerConfig_();
+  var ahora = ahora_();
+  var t = tabla_(HOJAS.RECOMPRA);
+  var filaDe = {};
+  objetos_(t, ESQUEMAS.RECOMPRA).forEach(function (f) { if (telefonos.indexOf(f.telefono) >= 0) filaDe[f.telefono] = f._fila; });
+  var pedidos = pedidosConLineas_().filter(function (p) { return telefonos.indexOf(p.telefono) >= 0; });
+  var clientes = leerClientes_().lista.filter(function (c) { return telefonos.indexOf(c.telefono) >= 0; });
+  var fichas = Logica.fichasRecompra({ clientes: clientes, pedidos: pedidos, catalogo: leerCatalogo_(), config: cfg });
+  var r = Logica.ordenarRecompra({ hoy: ahora.fecha, fichas: fichas, envios: leerMensajes_().lista.map(envioParaLogica_), config: cfg });
+  var porTel = agruparPorTelefono_(pedidos);
+  r.filas.forEach(function (f) {
+    if (!filaDe[f.telefono]) return;
+    escribirCampos_(t, filaDe[f.telefono], filaHojaRecompra_(f, porTel, ahora.fecha, ahora.hora, cfg), ESQUEMAS.RECOMPRA,
+      ['prioridad', 'estado', 'leEscribi', 'leEscribiEl', 'resultado']);
+  });
+}
+
+function marcarCasillaRecompra_(telefono, campo, valor) {
+  if (!hojaExiste_(HOJAS.RECOMPRA)) return;
+  var t = tabla_(HOJAS.RECOMPRA);
+  objetos_(t, ESQUEMAS.RECOMPRA).forEach(function (f) {
+    if (f.telefono !== telefono) return;
+    var o = {};
+    o[campo] = valor;
+    escribirCampos_(t, f._fila, o, ESQUEMAS.RECOMPRA, [campo]);
+  });
+}
+
+/** La web app: "Listo, le escribí". sello: cuándo lo tocó en el celu. */
+function marcarEscrito(telefono, sello, tipo) {
+  return conLock_(function () {
+    CACHE_ = {};
+    var tel = telefonoDe_(telefono);
+    var s = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(Logica.texto(sello)) ? Logica.texto(sello) : ahora_().sello;
+    var cli = leerClientes_().lista.filter(function (c) { return c.telefono === tel; })[0] || {};
+    var m = registrarEnvio_(tel, s, { cliente: cli.nombre || '', tipo: tipo });
+    actualizarFilasRecompra_([tel]);
+    return { telefono: tel, fecha: m.fecha };
+  });
+}
+
+/** La web app: deshacer el "Listo". */
+function desmarcarEscrito(telefono, sello) {
+  return conLock_(function () {
+    CACHE_ = {};
+    var tel = telefonoDe_(telefono);
+    var borrados = borrarEnvio_(tel, Logica.fechaDeSello(sello) || ahora_().fecha);
+    actualizarFilasRecompra_([tel]);
+    return { telefono: tel, borrados: borrados };
+  });
+}
+
+/** La web app: "No escribirle más" (o volver a activarlo). Queda en CLIENTES, columna "No escribir". */
+function marcarNoEscribir(telefono, valor) {
+  return conLock_(function () {
+    CACHE_ = {};
+    var tel = telefonoDe_(telefono);
+    marcarNoEscribirCliente_(tel, !!valor);
+    marcarCasillaRecompra_(tel, 'noEscribir', !!valor);
+    return { telefono: tel, noEscribir: !!valor };
+  });
+}
+
+/** Activador simple de Google: al tildar "Le escribí" se guarda la fecha sola; "No escribir" va a CLIENTES. */
+function onEdit(e) {
+  try {
+    alEditarRecompra_(e);
+  } catch (err) {
+    try { ss_().toast('⚠️ ' + mensajeError_(err), 'Avícola', 10); } catch (x) { /* sin planilla abierta */ }
+  }
+}
+
+function alEditarRecompra_(e) {
+  if (!e || !e.range) return;
+  var hoja = e.range.getSheet();
+  if (hoja.getName() !== HOJAS.RECOMPRA) return;
+  var t = tabla_(hoja);
+  var jEsc = t.idx[clave_(encabezado_(ESQUEMAS.RECOMPRA, 'leEscribi'))];
+  var jNo = t.idx[clave_(encabezado_(ESQUEMAS.RECOMPRA, 'noEscribir'))];
+  var c1 = e.range.getColumn() - 1;
+  var c2 = c1 + e.range.getNumColumns() - 1;
+  var tocaEscribi = jEsc !== undefined && jEsc >= c1 && jEsc <= c2;
+  var tocaNo = jNo !== undefined && jNo >= c1 && jNo <= c2;
+  if (!tocaEscribi && !tocaNo) return;
+  var f1 = e.range.getRow();
+  var f2 = f1 + e.range.getNumRows() - 1;
+  var filas = objetos_(t, ESQUEMAS.RECOMPRA).filter(function (f) {
+    return f._fila >= f1 && f._fila <= f2 && Logica.telefonoValido(f.telefono);
+  });
+  if (!filas.length) return;
+  conLock_(function () {
+    CACHE_ = {};
+    var ahora = ahora_();
+    var tels = [];
+    filas.forEach(function (f) {
+      if (tocaEscribi) {
+        if (f.leEscribi && !f.leEscribiEl) registrarEnvio_(f.telefono, ahora.sello, { cliente: f.nombre, tipo: f.tipo });
+        else if (!f.leEscribi && f.leEscribiEl) borrarEnvio_(f.telefono, Logica.fechaDeSello(f.leEscribiEl));
+        tels.push(f.telefono);
+      }
+      if (tocaNo) marcarNoEscribirCliente_(f.telefono, f.noEscribir);
+    });
+    actualizarFilasRecompra_(tels);
+  });
+}
+
+// ═════════════════════════════ Tablero ═════════════════════════════
+
+function datosTablero_(opciones) {
+  opciones = opciones || {};
+  return Logica.calcularTablero({
+    hoy: ahora_().fecha, pedidos: pedidosConLineas_(), gastos: leerGastos_(), gastoMeta: leerGastoMeta_(),
+    envios: leerMensajes_().lista.map(envioParaLogica_), clientes: leerClientes_().lista, catalogo: leerCatalogo_(),
+    config: leerConfig_(), semanas: opciones.semanas, sinDetalle: opciones.sinDetalle
+  });
+}
+
+/** Rearma la pestaña TABLERO (menú, activador diario e instalar). */
+function recalcularTablero() {
+  CACHE_ = {};
+  if (!hojaExiste_(HOJAS.TABLERO)) throw new Error('Falta la pestaña TABLERO. Corré Avícola → Instalar.');
+  var r = datosTablero_();
+  escribirTablero_(r, leerConfig_());
+  return r;
+}
+
+/** La web app (pantalla NÚMEROS): esta semana y la anterior. */
+function obtenerNumeros() {
+  CACHE_ = {};
+  return { semanas: datosTablero_({ semanas: 2, sinDetalle: true }).semanas, actualizado: ahora_().sello };
+}
+
+function nulo_(x) { return x === null || x === undefined ? '' : x; }
+
+function escribirTablero_(r, cfg) {
+  var hoja = ss_().getSheetByName(HOJAS.TABLERO);
+  var P = '"$"#,##0';
+  var PCT = '0.0%';
+  var N = '0';
+  var pct = Math.round((Number(cfg.porcentajeAgustin) || 0) * 100);
+  var inf = nuevoInforme_();
+  inf.titulo('TABLERO — por semana, de lunes a domingo (últimas ' + r.semanas.length + ')');
+  inf.fila(['Actualizado el ' + Logica.formatearFecha(ahora_().fecha) + ' ' + ahora_().hora +
+    '. Se recalcula solo todos los días y desde el menú Avícola → Recalcular tablero.']);
+  inf.vacia();
+  inf.encabezado(['Semana', 'Pedidos', 'Ventas', 'Ganancia', 'Margen', 'Clientes nuevos', 'Clientes que repitieron',
+    '% de la ganancia de clientes que repiten', 'Mensajes de recompra enviados', '% que volvió a comprar', 'Gasto en Meta',
+    'Costo por cliente nuevo (anuncios)', 'Agustín ' + pct + '%', 'Local ' + (100 - pct) + '%', 'Gastos que paga el local',
+    'Le queda al local']);
+  r.semanas.forEach(function (s) {
+    inf.fila([s.nombre + (s.enCurso ? ' (en curso)' : ''), s.pedidos, s.ventas, s.ganancia, nulo_(s.margen), s.nuevos, s.repitieron,
+      nulo_(s.porcentajeRepite), s.mensajes, nulo_(s.porcentajeVolvio), s.meta, nulo_(s.costoPorNuevo), s.agustin, s.local,
+      s.gastosLocal, s.leQuedaLocal], ['@', N, P, P, PCT, N, N, PCT, N, PCT, P, P, P, P, P, P]);
+  });
+  var d = r.detalle;
+  inf.vacia();
+  inf.titulo('ÚLTIMAS ' + d.semanas + ' SEMANAS (' + Logica.formatearFechaCorta(d.desde) + ' al ' + Logica.formatearFechaCorta(d.hasta) + ') — POR PROMO');
+  inf.encabezado(['Promo', 'Unidades', 'Ganancia', 'Compradores', 'Volvieron a comprar', '% que volvió a comprar']);
+  if (!d.promos.length) inf.fila(['(sin ventas de promos)']);
+  d.promos.forEach(function (p) {
+    inf.fila([p.nombre, Logica.formatearCantidad(p.unidades), p.ganancia, p.compradores, p.volvieron, nulo_(p.porcentajeVolvio)],
+      ['@', '@', P, N, N, PCT]);
+  });
+  inf.vacia();
+  inf.titulo('ÚLTIMAS ' + d.semanas + ' SEMANAS — POR BARRIO');
+  inf.encabezado(['Barrio', 'Pedidos', 'Ganancia']);
+  if (!d.barrios.length) inf.fila(['(sin ventas)']);
+  d.barrios.forEach(function (b) { inf.fila([b.barrio, b.pedidos, b.ganancia], ['@', N, P]); });
+  inf.vacia();
+  inf.titulo('CLIENTES HOY');
+  inf.encabezado(['Activos (compraron en los últimos ' + cfg.diasActivo + ' días)', 'En riesgo (de ' + (Number(cfg.diasActivo) + 1) +
+    ' a ' + cfg.diasPerdido + ' días)', 'Perdidos (más de ' + cfg.diasPerdido + ' días)', 'Sin compras cargadas (clientes de antes)']);
+  inf.fila([r.clientes.activos, r.clientes.enRiesgo, r.clientes.perdidos, r.clientes.sinCompras], [N, N, N, N]);
+  inf.vacia();
+  inf.titulo('CÓMO SE CALCULA');
+  [
+    'Ventas y ganancia: pedidos entregados, igual que en el cierre. Ganancia = ventas − costo de mercadería.',
+    'Clientes nuevos: su primera compra fue esa semana (los clientes de antes no cuentan como nuevos). Repitieron: ya habían comprado antes.',
+    'Costo por cliente nuevo: gasto en Meta ÷ clientes nuevos cuyo origen es un anuncio (' + (cfg.origenesAnuncio || []).join(', ') + ').',
+    'Mensajes de recompra: los de RECOMPRA_MENSAJES. Volvió a comprar = pidió dentro de ' + cfg.diasParaMedir + ' días después del mensaje.',
+    'Le queda al local = local ' + (100 - pct) + '% − gastos que paga el local (GASTOS) − gasto en Meta (GASTO_META). La parte de Agustín no se toca.'
+  ].forEach(function (x) { inf.fila([x]); });
+  pintarInforme_(hoja, inf, 16);
+  hoja.setColumnWidth(1, 240);
+}
+
 // ═════════════════════════════ Avisos ═════════════════════════════
 
 /** Recalcula la pestaña AVISOS (márgenes bajos, costos faltantes, precios vacíos). */
@@ -1269,6 +1852,8 @@ function actualizarAvisos() {
   if (costos.error) avisos.unshift({ tipo: 'COSTOS', codigo: '', nombre: '', detalle: costos.error });
   cfg.faltantes.forEach(function (f) { avisos.unshift({ tipo: 'Falta en CONFIG', codigo: '', nombre: f, detalle: 'Completalo en la pestaña CONFIG.' }); });
   cfg.avisos.forEach(function (a) { avisos.unshift({ tipo: 'CONFIG', codigo: '', nombre: '', detalle: a }); });
+  // La publicidad va solo en GASTO_META: si también está en GASTOS, se contaría dos veces.
+  Logica.avisosGastosPublicidad(leerGastos_(), cfg.palabrasPublicidad).forEach(function (a) { avisos.push(a); });
   var t = tabla_(HOJAS.AVISOS);
   if (t.filas.length) t.hoja.getRange(t.primeraFila, 1, t.filas.length, Math.max(t.enc.length, 1)).clearContent();
   var sello = ahora_().sello;
@@ -1326,8 +1911,9 @@ function importarClientes_() {
   var sello = ahora_().sello;
   conLock_(function () {
     agregarFilas_(tc, ESQUEMAS.CLIENTES, res.nuevos.map(function (c) {
+      // Los contactos importados son clientes de antes (compraron antes del sistema): no cuentan como nuevos.
       return { telefono: c.telefono, nombre: c.nombre, direccion: c.direccion, barrio: c.barrio, notas: c.notas,
-        cantidadCompras: 0, totalGastado: 0, alta: sello };
+        cantidadCompras: 0, totalGastado: 0, alta: sello, deAntes: 'sí' };
     }));
     var porTel = {};
     existentes.forEach(function (c) { porTel[c.telefono] = c; });

@@ -393,7 +393,8 @@ test('circuito completo en la planilla', async function (t) {
   await t.test('menú Avícola y avisos', function () {
     g.onOpen();
     var items = entorno.registro.menu.filter(function (x) { return x[0] !== '__menu__'; }).map(function (x) { return x[0]; });
-    assert.deepEqual(items.slice(0, 7), ['Instalar', 'Abrir web app', 'Ordenar ruta', 'Hoja de reparto', 'Cerrar el día', 'Importar clientes', 'Importar ventas de octubre']);
+    assert.deepEqual(items, ['Instalar', 'Abrir web app', 'Ordenar ruta', 'Hoja de reparto', 'Cerrar el día',
+      'Recalcular recompra', 'Recalcular tablero', 'Importar clientes', 'Importar ventas de octubre', 'Actualizar avisos']);
     g.abrirWebApp();
     assert.match(entorno.registro.alertas.pop(), /Todavía no publicaste la web app/);
     g.instalarDesdeMenu();
